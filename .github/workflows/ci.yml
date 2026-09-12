@@ -68,7 +68,7 @@ jobs:
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f ../../db/schema.sql
       - run: go test ./...
       - run: go build ./cmd/server
-      - name: API auth, RBAC, leave, attendance and audit smoke test
+      - name: API auth, RBAC, invitations, leave, attendance and audit smoke test
         shell: bash
         run: |
           set -euo pipefail
@@ -90,6 +90,45 @@ jobs:
           curl -sf http://localhost:8080/api/v1/auth/me "${ADMIN_AUTH[@]}" >/dev/null
           curl -sf http://localhost:8080/api/v1/employees "${ADMIN_AUTH[@]}" \
             | python3 -c 'import json,sys; assert json.load(sys.stdin)["total"] >= 4'
+
+          # Admin can invite HR. The raw token is returned once, while only its hash is stored.
+          HR_INVITE=$(curl -sf -X POST http://localhost:8080/api/v1/access/invitations \
+            "${ADMIN_AUTH[@]}" "${JSON[@]}" -d '{"email":"hr-ci@northstar.local","role":"hr"}')
+          HR_TOKEN=$(printf '%s' "$HR_INVITE" | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data["invitation"]["role"] == "hr"; print(data["token"])')
+          test -n "$HR_TOKEN"
+          curl -sf -X POST http://localhost:8080/api/v1/access/invitations/inspect "${JSON[@]}" \
+            -d "{\"token\":\"$HR_TOKEN\"}" \
+            | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data["email"] == "hr-ci@northstar.local" and data["existing_user"] is False'
+          HR_ACCEPT=$(curl -sf -X POST http://localhost:8080/api/v1/access/invitations/accept "${JSON[@]}" \
+            -d "{\"token\":\"$HR_TOKEN\",\"display_name\":\"CI HR\",\"password\":\"ci-hr-password-2026\"}")
+          HR_ACCESS_TOKEN=$(printf '%s' "$HR_ACCEPT" | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data["created_user"] is True; print(data["access_token"])')
+          HR_AUTH=(-H "Authorization: Bearer $HR_ACCESS_TOKEN")
+
+          # Accepted tokens are one-time only.
+          REUSE_STATUS=$(curl -s -o /tmp/reuse.json -w '%{http_code}' -X POST http://localhost:8080/api/v1/access/invitations/accept "${JSON[@]}" \
+            -d "{\"token\":\"$HR_TOKEN\",\"display_name\":\"Again\",\"password\":\"another-password-2026\"}")
+          test "$REUSE_STATUS" = "404"
+
+          # HR must not be able to grant privileged admin/HR access.
+          HR_ESCALATION_STATUS=$(curl -s -o /tmp/hr-escalation.json -w '%{http_code}' -X POST http://localhost:8080/api/v1/access/invitations \
+            "${HR_AUTH[@]}" "${JSON[@]}" -d '{"email":"admin2@northstar.local","role":"admin"}')
+          test "$HR_ESCALATION_STATUS" = "403"
+
+          # Linked employee access must use the actual employee work email.
+          MISMATCH_STATUS=$(curl -s -o /tmp/invite-mismatch.json -w '%{http_code}' -X POST http://localhost:8080/api/v1/access/invitations \
+            "${HR_AUTH[@]}" "${JSON[@]}" -d '{"email":"wrong@northstar.local","role":"employee","employee_id":"emp_004"}')
+          test "$MISMATCH_STATUS" = "400"
+          JONAS_INVITE=$(curl -sf -X POST http://localhost:8080/api/v1/access/invitations \
+            "${HR_AUTH[@]}" "${JSON[@]}" -d '{"email":"jonas@northstar.local","role":"employee","employee_id":"emp_004"}')
+          JONAS_TOKEN=$(printf '%s' "$JONAS_INVITE" | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
+          JONAS_ACCEPT=$(curl -sf -X POST http://localhost:8080/api/v1/access/invitations/accept "${JSON[@]}" \
+            -d "{\"token\":\"$JONAS_TOKEN\",\"display_name\":\"Jonas Lee\",\"password\":\"jonas-ci-password-2026\"}")
+          JONAS_ACCESS_TOKEN=$(printf '%s' "$JONAS_ACCEPT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
+          JONAS_AUTH=(-H "Authorization: Bearer $JONAS_ACCESS_TOKEN")
+          JONAS_LIST_STATUS=$(curl -s -o /tmp/jonas-list.json -w '%{http_code}' http://localhost:8080/api/v1/employees "${JONAS_AUTH[@]}")
+          test "$JONAS_LIST_STATUS" = "403"
+          curl -sf http://localhost:8080/api/v1/leave/requests "${JONAS_AUTH[@]}" \
+            | python3 -c 'import json,sys; assert "data" in json.load(sys.stdin)'
 
           ADMIN_LEAVE_ID=$(curl -sf -X POST http://localhost:8080/api/v1/leave/requests \
             "${ADMIN_AUTH[@]}" "${JSON[@]}" \
@@ -129,8 +168,10 @@ jobs:
 
           curl -sf http://localhost:8080/api/v1/attendance "${ADMIN_AUTH[@]}" \
             | python3 -c 'import json,sys; assert json.load(sys.stdin)["total"] >= 1'
-          curl -sf 'http://localhost:8080/api/v1/audit?limit=30' "${ADMIN_AUTH[@]}" \
-            | python3 -c 'import json,sys; assert json.load(sys.stdin)["total"] >= 6'
+          curl -sf http://localhost:8080/api/v1/access/invitations "${ADMIN_AUTH[@]}" \
+            | python3 -c 'import json,sys; assert json.load(sys.stdin)["total"] >= 2'
+          curl -sf 'http://localhost:8080/api/v1/audit?limit=50' "${ADMIN_AUTH[@]}" \
+            | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data["total"] >= 10'
 
   desktop-ui:
     name: Desktop UI build
