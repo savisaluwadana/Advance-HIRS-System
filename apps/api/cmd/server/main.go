@@ -44,7 +44,7 @@ func main() {
 	port := envOr("API_PORT", "8080")
 	server := &http.Server{
 		Addr:              ":" + port,
-		Handler:           httpapi.NewHandler(dataStore, authManager, envOr("WEB_ORIGIN", "http://localhost:3000")),
+		Handler:           httpapi.NewHandlerV2(dataStore, authManager, envOr("WEB_ORIGIN", "http://localhost:3000")),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
