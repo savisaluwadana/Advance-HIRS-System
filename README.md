@@ -34,16 +34,13 @@ PostgreSQL is the authoritative cloud system of record. Employee/manager self-se
 - Web sessions stored in HttpOnly/SameSite cookies through a Next.js BFF
 - Roles: `admin`, `hr`, `manager`, `employee`
 - Employee create, update, archive and directory workflows
-- Employee/manager leave self-service
-- Direct-report manager approvals
-- Policy-backed annual/sick leave balances
-- Immutable leave balance ledger with entitlement, carry-over, adjustments, approved-leave debits and cancellation reversals
-- Company and location-specific holiday calendars
-- Working-day calculation that excludes weekends and applicable holidays
-- Half-day leave requests
-- Database-enforced overlapping-leave protection
-- HR/admin leave policy, assignment, holiday and balance administration at `/leave/admin`
-- Attendance check-in/check-out and HR override controls
+- Policy-backed leave management with balances, carry-over and company holidays
+- Employee-specific leave policy variants and manager approvals
+- Work schedules with timezone, work days, breaks, grace periods and overtime thresholds
+- Employee-specific effective-dated schedule assignments
+- Schedule-aware attendance with persisted late, early-leave, worked and overtime minutes
+- Attendance correction requests with manager/HR approval
+- Payroll-period attendance summaries
 - Organization audit history
 - Secure one-time organization invitations
 - HR/admin access administration at `/access`
@@ -51,7 +48,7 @@ PostgreSQL is the authoritative cloud system of record. Employee/manager self-se
 - AES-256-GCM encrypted desktop employee payloads
 - OS-keychain-protected desktop session token
 - Durable offline desktop sync queue with conflict detection
-- CI integration tests against PostgreSQL for RBAC, invitations, leave accounting, attendance, audit and tenant isolation
+- CI integration tests against PostgreSQL for RBAC, invitations, leave accounting, attendance accounting, audit and tenant isolation
 
 ## Run locally with Docker
 
@@ -78,6 +75,10 @@ Leave workspace: `http://localhost:3000/leave`
 
 Leave administration: `http://localhost:3000/leave/admin`
 
+Attendance workspace: `http://localhost:3000/attendance`
+
+Attendance administration: `http://localhost:3000/attendance/admin`
+
 Access administration: `http://localhost:3000/access`
 
 API: `http://localhost:8080`
@@ -97,9 +98,32 @@ Default policies are provisioned per organization when first needed:
 - Remote work — untracked
 - Other leave — untracked
 
-HR/admins can customize entitlement, carry-over and negative-balance behavior from `/leave/admin`, assign policies to employees, post auditable manual adjustments, and manage company/location holidays.
+HR/admins can customize entitlement, carry-over and negative-balance behavior from `/leave/admin`, create policy variants, assign policies to employees, post auditable manual adjustments, and manage company/location holidays.
 
 The request engine excludes weekends and matching holidays from day calculations. Half-day requests count as `0.5` and must be a single calendar date. PostgreSQL prevents overlapping pending/approved leave for the same employee, including concurrent submissions.
+
+## Attendance Management v2
+
+Attendance is schedule-aware. Each organization gets a default work schedule when first needed, and HR/admins can create additional schedules with their own timezone, working days, shift times, break duration, late grace period and overtime threshold.
+
+Employee-specific schedule assignments are effective-dated. When an employee checks in, Advance HRIS snapshots the resolved schedule onto that attendance row. This means changing a schedule later does not retroactively change historical payroll calculations.
+
+Attendance rows persist:
+
+- scheduled start/end
+- check-in/check-out
+- break minutes
+- late minutes after grace
+- early-leave minutes
+- net worked minutes
+- overtime minutes after the configured threshold
+- work mode and source (`self_service`, `hr_override`, `correction`, or `sync`)
+
+Employees can submit correction requests when a time record is wrong or missing. Managers may approve corrections only for direct reports; HR/admin can review organization-wide corrections. Approval rewrites the attendance record and recomputes schedule metrics in one PostgreSQL transaction.
+
+`/attendance` provides employee/manager timekeeping, current-month metrics, correction submission and approval queues. `/attendance/admin` provides schedule configuration, employee assignments, HR correction review and payroll-period summary generation.
+
+The period summary endpoint returns scheduled days, recorded days, worked minutes/hours, overtime, late minutes and early-leave minutes. This is the timekeeping boundary intended to feed the future payroll module.
 
 ## Secure invitation flow
 
@@ -169,9 +193,15 @@ Core protected endpoints include:
 - `POST /api/v1/leave/balances/adjustments`
 - `GET|POST /api/v1/leave/holidays`
 - `DELETE /api/v1/leave/holidays/{id}`
+- `GET /api/v1/attendance/schedules`
+- `PUT /api/v1/attendance/schedules`
+- `POST /api/v1/attendance/schedules/{id}/assignments`
 - `GET /api/v1/attendance`
 - `POST /api/v1/attendance/check-in`
 - `POST /api/v1/attendance/check-out`
+- `GET|POST /api/v1/attendance/corrections`
+- `POST /api/v1/attendance/corrections/{id}/decision`
+- `GET /api/v1/attendance/timesheet`
 - `GET /api/v1/audit`
 - `GET|POST /api/v1/access/invitations`
 - `POST /api/v1/access/invitations/{id}/revoke`
@@ -192,11 +222,14 @@ Existing environments should apply migrations in order:
 ```bash
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/002_tenant_scoped_employee_ids.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/003_leave_management_v2.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/004_attendance_v2.sql
 ```
 
 Migration 002 removes the legacy global uniqueness constraint from `employees.id`. Employee identity is scoped by `(organization_id, id)`.
 
 Migration 003 introduces leave policies, policy assignments, holidays, the balance ledger, half-day/cancellation fields and the database overlap constraint.
+
+Migration 004 introduces work schedules, effective-dated schedule assignments, attendance metric snapshots and attendance correction requests.
 
 ## Production configuration
 
@@ -226,13 +259,12 @@ Optional bootstrap/demo configuration:
 
 1. Automated/versioned production migration runner
 2. Refresh-token/session revocation + SSO/OIDC
-3. Work schedules, timesheets and attendance corrections
-4. Payroll and compensation
-5. Performance goals/reviews
-6. Recruiting pipeline
-7. Documents and notifications
-8. Desktop conflict-resolution UI + delta sync
-9. Permission-aware AI HR copilot
+3. Payroll and compensation
+4. Performance goals/reviews
+5. Recruiting pipeline
+6. Documents and notifications
+7. Desktop conflict-resolution UI + delta sync
+8. Permission-aware AI HR copilot
 
 ## OpenChoreo
 
