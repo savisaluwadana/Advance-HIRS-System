@@ -53,6 +53,7 @@ jobs:
       BOOTSTRAP_ADMIN_EMAIL: admin@advancehris.local
       BOOTSTRAP_ADMIN_PASSWORD: ci-admin-password-2026
       SEED_DEMO_DATA: "true"
+      SEED_DEMO_PASSWORD: ci-demo-password-2026
     defaults:
       run:
         working-directory: apps/api
@@ -67,7 +68,7 @@ jobs:
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f ../../db/schema.sql
       - run: go test ./...
       - run: go build ./cmd/server
-      - name: API auth, leave, attendance and audit smoke test
+      - name: API auth, RBAC, leave, attendance and audit smoke test
         shell: bash
         run: |
           set -euo pipefail
@@ -76,48 +77,60 @@ jobs:
           trap 'kill "$API_PID" 2>/dev/null || true' EXIT
 
           for i in {1..30}; do
-            if curl -sf http://localhost:8080/health >/dev/null; then
-              break
-            fi
+            if curl -sf http://localhost:8080/health >/dev/null; then break; fi
             sleep 1
           done
           curl -sf http://localhost:8080/health >/dev/null
-
-          TOKEN=$(curl -sf -X POST http://localhost:8080/api/v1/auth/login \
-            -H 'Content-Type: application/json' \
-            -d '{"email":"admin@advancehris.local","password":"ci-admin-password-2026","organization_slug":"northstar"}' \
-            | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
-          test -n "$TOKEN"
-
-          AUTH=(-H "Authorization: Bearer $TOKEN")
           JSON=(-H 'Content-Type: application/json')
 
-          curl -sf http://localhost:8080/api/v1/auth/me "${AUTH[@]}" >/dev/null
-          curl -sf http://localhost:8080/api/v1/employees "${AUTH[@]}" \
-            | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data["total"] >= 4'
+          ADMIN_TOKEN=$(curl -sf -X POST http://localhost:8080/api/v1/auth/login "${JSON[@]}" \
+            -d '{"email":"admin@advancehris.local","password":"ci-admin-password-2026","organization_slug":"northstar"}' \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
+          ADMIN_AUTH=(-H "Authorization: Bearer $ADMIN_TOKEN")
+          curl -sf http://localhost:8080/api/v1/auth/me "${ADMIN_AUTH[@]}" >/dev/null
+          curl -sf http://localhost:8080/api/v1/employees "${ADMIN_AUTH[@]}" \
+            | python3 -c 'import json,sys; assert json.load(sys.stdin)["total"] >= 4'
 
-          LEAVE_ID=$(curl -sf -X POST http://localhost:8080/api/v1/leave/requests \
-            "${AUTH[@]}" "${JSON[@]}" \
-            -d '{"employee_id":"emp_001","leave_type":"annual","start_date":"2026-09-20","end_date":"2026-09-21","reason":"CI workflow test"}' \
+          ADMIN_LEAVE_ID=$(curl -sf -X POST http://localhost:8080/api/v1/leave/requests \
+            "${ADMIN_AUTH[@]}" "${JSON[@]}" \
+            -d '{"employee_id":"emp_001","leave_type":"annual","start_date":"2026-09-20","end_date":"2026-09-21","reason":"CI admin workflow"}' \
             | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
-          test -n "$LEAVE_ID"
-
-          curl -sf -X POST "http://localhost:8080/api/v1/leave/requests/$LEAVE_ID/decision" \
-            "${AUTH[@]}" "${JSON[@]}" -d '{"decision":"approved","note":"CI approval"}' \
+          curl -sf -X POST "http://localhost:8080/api/v1/leave/requests/$ADMIN_LEAVE_ID/decision" \
+            "${ADMIN_AUTH[@]}" "${JSON[@]}" -d '{"decision":"approved","note":"CI approval"}' \
             | python3 -c 'import json,sys; assert json.load(sys.stdin)["status"] == "approved"'
 
           curl -sf -X POST http://localhost:8080/api/v1/attendance/check-in \
-            "${AUTH[@]}" "${JSON[@]}" -d '{"employee_id":"emp_001","work_mode":"remote"}' \
-            | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data["employee_id"] == "emp_001" and data["check_in"]'
-
+            "${ADMIN_AUTH[@]}" "${JSON[@]}" -d '{"employee_id":"emp_002","work_mode":"remote"}' \
+            | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data["employee_id"] == "emp_002" and data["check_in"]'
           curl -sf -X POST http://localhost:8080/api/v1/attendance/check-out \
-            "${AUTH[@]}" "${JSON[@]}" -d '{"employee_id":"emp_001"}' \
+            "${ADMIN_AUTH[@]}" "${JSON[@]}" -d '{"employee_id":"emp_002"}' \
             | python3 -c 'import json,sys; assert json.load(sys.stdin)["check_out"]'
 
-          curl -sf http://localhost:8080/api/v1/attendance "${AUTH[@]}" \
-            | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data["total"] >= 1'
-          curl -sf 'http://localhost:8080/api/v1/audit?limit=20' "${AUTH[@]}" \
-            | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data["total"] >= 4'
+          EMPLOYEE_TOKEN=$(curl -sf -X POST http://localhost:8080/api/v1/auth/login "${JSON[@]}" \
+            -d '{"email":"ava@northstar.local","password":"ci-demo-password-2026","organization_slug":"northstar"}' \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
+          EMPLOYEE_AUTH=(-H "Authorization: Bearer $EMPLOYEE_TOKEN")
+          EMPLOYEE_LIST_STATUS=$(curl -s -o /tmp/employee-list.json -w '%{http_code}' http://localhost:8080/api/v1/employees "${EMPLOYEE_AUTH[@]}")
+          test "$EMPLOYEE_LIST_STATUS" = "403"
+          EMPLOYEE_LEAVE_ID=$(curl -sf -X POST http://localhost:8080/api/v1/leave/requests \
+            "${EMPLOYEE_AUTH[@]}" "${JSON[@]}" \
+            -d '{"leave_type":"annual","start_date":"2026-09-24","end_date":"2026-09-25","reason":"Employee self-service CI"}' \
+            | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data["employee_id"] == "emp_001"; print(data["id"])')
+
+          MANAGER_TOKEN=$(curl -sf -X POST http://localhost:8080/api/v1/auth/login "${JSON[@]}" \
+            -d '{"email":"sara@northstar.local","password":"ci-demo-password-2026","organization_slug":"northstar"}' \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
+          MANAGER_AUTH=(-H "Authorization: Bearer $MANAGER_TOKEN")
+          curl -sf http://localhost:8080/api/v1/leave/requests "${MANAGER_AUTH[@]}" \
+            | python3 -c 'import json,sys; data=json.load(sys.stdin)["data"]; assert any(x["employee_id"] == "emp_001" for x in data)'
+          curl -sf -X POST "http://localhost:8080/api/v1/leave/requests/$EMPLOYEE_LEAVE_ID/decision" \
+            "${MANAGER_AUTH[@]}" "${JSON[@]}" -d '{"decision":"approved","note":"Manager CI approval"}' \
+            | python3 -c 'import json,sys; assert json.load(sys.stdin)["status"] == "approved"'
+
+          curl -sf http://localhost:8080/api/v1/attendance "${ADMIN_AUTH[@]}" \
+            | python3 -c 'import json,sys; assert json.load(sys.stdin)["total"] >= 1'
+          curl -sf 'http://localhost:8080/api/v1/audit?limit=30' "${ADMIN_AUTH[@]}" \
+            | python3 -c 'import json,sys; assert json.load(sys.stdin)["total"] >= 6'
 
   desktop-ui:
     name: Desktop UI build
