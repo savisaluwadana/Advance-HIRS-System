@@ -12,12 +12,16 @@ CREATE TABLE IF NOT EXISTS leave_policies (
   track_balance BOOLEAN NOT NULL DEFAULT true,
   allow_negative BOOLEAN NOT NULL DEFAULT false,
   requires_approval BOOLEAN NOT NULL DEFAULT true,
+  is_default BOOLEAN NOT NULL DEFAULT false,
   active BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (organization_id, code),
-  UNIQUE (organization_id, leave_type)
+  UNIQUE (organization_id, code)
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_leave_policy_default_type
+  ON leave_policies(organization_id, leave_type)
+  WHERE is_default = true;
 
 CREATE TABLE IF NOT EXISTS leave_policy_assignments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
