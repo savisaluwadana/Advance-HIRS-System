@@ -41,7 +41,7 @@ export default function Home() {
       const role = me.user.role;
       const [leaveResponse, attendanceResponse, dashboardResponse, employeeResponse] = await Promise.all([
         requestJSON<{data: LeaveRequest[]}>("/api/hr/leave/requests"),
-        requestJSON<{data: AttendanceEntry[]}>("/api/hr/attendance"),
+        requestJSON<{data: AttendanceEntry[]}>(`/api/hr/attendance?date=${localDateString(new Date())}`),
         role === "employee" ? Promise.resolve(null) : requestJSON<Dashboard>("/api/hr/dashboard"),
         role === "employee" ? Promise.resolve({data: [] as Employee[]}) : requestJSON<{data: Employee[]}>("/api/hr/employees"),
       ]);
@@ -109,7 +109,7 @@ export default function Home() {
   const manager = user.role === "manager";
   const pending = data.leave.filter((item) => item.status === "pending");
   const selectedAttendanceID = elevated ? attendanceEmployee : undefined;
-  const attendance = selectedAttendanceID ? data.attendance.find((item) => item.employee_id === selectedAttendanceID) : data.attendance[0];
+  const attendance = selectedAttendanceID ? data.attendance.find((item) => item.employee_id === selectedAttendanceID) : data.attendance.find((item) => item.employee === user.display_name);
   const approvable = pending.filter((item) => elevated || (manager && item.employee !== user.display_name));
   const directory = data.employees.slice(0, 8);
   const metrics: Array<[string, string | number, string]> = data.dashboard ? [
@@ -121,7 +121,7 @@ export default function Home() {
   return <main className="portal-shell">
     <aside className="portal-sidebar">
       <div className="portal-brand"><span className="brand-mark">A</span><div><strong>Advance HRIS</strong><small>{user.organization}</small></div></div>
-      <nav><button className="portal-nav active">Overview</button><button className="portal-nav">Leave</button><button className="portal-nav">Attendance</button>{(elevated || manager) && <button className="portal-nav">People</button>}<button className="portal-nav">Documents</button></nav>
+      <nav><button className="portal-nav active">Overview</button><button className="portal-nav" onClick={() => { window.location.href = "/leave"; }}>Leave</button><button className="portal-nav" onClick={() => { window.location.href = "/attendance"; }}>Attendance</button>{(elevated || manager) && <button className="portal-nav">People</button>}<button className="portal-nav">Documents</button></nav>
       <div className="portal-account"><span className="avatar">{initials(user.display_name)}</span><div><strong>{user.display_name}</strong><small>{user.role}</small></div><button onClick={logout}>Sign out</button></div>
     </aside>
 
@@ -166,3 +166,4 @@ function firstName(name: string) { return name.split(" ")[0] || name; }
 function greeting() { const hour = new Date().getHours(); return hour < 12 ? "morning" : hour < 18 ? "afternoon" : "evening"; }
 function roleMessage(role: string) { if (role === "manager") return "Review your team’s requests and stay on top of attendance."; if (role === "employee") return "Manage your leave, attendance and day-to-day employee tasks."; return "Manage workforce operations with live tenant-scoped data."; }
 function formatTime(value?: string) { return value ? new Date(value).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"}) : "—"; }
+function localDateString(date: Date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; }
