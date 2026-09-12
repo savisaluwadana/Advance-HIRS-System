@@ -39,6 +39,8 @@ export default function AcceptClient({token}: {token: string}) {
       setLoading(false);
       return;
     }
+    // Keep the secret out of the address bar/history after the initial page load.
+    window.history.replaceState(null, "", "/accept");
     void requestJSON<Preview>("/api/invitations/inspect", {token})
       .then((next) => {
         setPreview(next);
