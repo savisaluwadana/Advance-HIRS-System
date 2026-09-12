@@ -29,6 +29,7 @@ services:
       BOOTSTRAP_ADMIN_EMAIL: admin@advancehris.local
       BOOTSTRAP_ADMIN_PASSWORD: local-admin-change-me
       SEED_DEMO_DATA: "true"
+      SEED_DEMO_PASSWORD: local-demo-password-2026
     ports:
       - "8080:8080"
     depends_on:
@@ -39,6 +40,7 @@ services:
     build: ./apps/web
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8080
+      API_INTERNAL_URL: http://api:8080
     ports:
       - "3000:3000"
     depends_on:
