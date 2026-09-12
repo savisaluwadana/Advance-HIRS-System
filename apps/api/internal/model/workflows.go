@@ -2,7 +2,7 @@ package model
 
 import "time"
 
-type LeaveRequest struct {
+type LeaveWorkflowRequest struct {
 	ID           string     `json:"id"`
 	EmployeeID   string     `json:"employee_id"`
 	Employee     string     `json:"employee"`
