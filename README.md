@@ -9,61 +9,86 @@ Employees / Managers                 HR / Admins
         |                                  |
         v                                  v
 Next.js Web Portal                Wails + React Desktop
-                                           |
-                                  Encrypted local SQLite
-                                           |
-                                   durable sync queue
         |                                  |
+        |                         Encrypted local SQLite
+        |                                  |
+        |                          durable sync queue
         +---------------+------------------+
                         |
                         v
                  Go Application API
-              Auth + RBAC + tenant scope
+            Auth + RBAC + tenant scope
                         |
                         v
                     PostgreSQL
 ```
 
-PostgreSQL is the authoritative cloud system of record. The HR/admin desktop saves approved edits locally first and synchronizes them through the same tenant-scoped API.
+PostgreSQL is the authoritative cloud system of record. Employee/manager self-service runs through the web portal, while HR/admins can also use the native local-first desktop console.
 
-## Current foundation
+## Current product foundation
 
-- Responsive Next.js HR dashboard
+- Responsive role-aware Next.js portal
 - Native Wails + React HR/admin desktop console
-- AES-256-GCM encrypted local employee payloads
-- OS keychain-protected encryption key and desktop access token
-- Durable offline sync queue with conflict detection
-- PostgreSQL persistence
-- Organizations / tenant isolation
-- Password authentication with bcrypt
-- Signed JWT access tokens
-- Server-side roles: `admin`, `hr`, `manager`, `employee`
-- Employee create, list, update and archive endpoints
-- Audit events for employee mutations
-- PostgreSQL-backed dashboard, leave and desktop sync endpoints
-- CI integration test against PostgreSQL
+- PostgreSQL persistence with organization/tenant isolation
+- bcrypt password authentication + signed JWT access tokens
+- Web sessions stored in HttpOnly/SameSite cookies through a Next.js BFF
+- Roles: `admin`, `hr`, `manager`, `employee`
+- Employee create, update, archive and directory workflows
+- Employee/manager leave self-service
+- Direct-report manager approvals
+- Attendance check-in/check-out and HR override controls
+- Organization audit history
+- Secure one-time organization invitations
+- HR/admin access administration at `/access`
+- Invitation acceptance/onboarding at `/accept?token=...`
+- AES-256-GCM encrypted desktop employee payloads
+- OS-keychain-protected desktop session token
+- Durable offline desktop sync queue with conflict detection
+- CI integration tests against PostgreSQL for RBAC, invitations, leave, attendance, audit and tenant isolation
 
 ## Run locally with Docker
-
-The fastest full-stack setup is:
 
 ```bash
 docker compose up --build
 ```
 
-Local development bootstraps a demo organization and admin account:
+Local development bootstraps:
 
 ```text
 Organization: northstar
-Email:        admin@advancehris.local
+Admin:        admin@advancehris.local
 Password:     local-admin-change-me
+Manager:      sara@northstar.local
+Employee:     ava@northstar.local
+Demo password: local-demo-change-me
 ```
 
-These credentials exist only for the local Docker configuration. Do not reuse them in a shared or production environment.
+These accounts are local/demo-only. Never enable demo seeding or reuse these credentials in a shared or production environment.
 
 Web: `http://localhost:3000`
 
+Access administration: `http://localhost:3000/access`
+
 API: `http://localhost:8080`
+
+## Secure invitation flow
+
+1. Sign in as an `admin` or `hr` user.
+2. Open `/access`.
+3. Choose a role and, for employee/manager access, link an employee profile.
+4. Advance HRIS creates a random one-time token that expires after 48 hours.
+5. Only the SHA-256 hash is persisted in PostgreSQL; the raw token is returned once.
+6. Share the generated `/accept?token=...` link through a trusted channel.
+7. The acceptance page removes the token from the browser URL after capture and exchanges it through POST requests.
+8. Successful acceptance consumes the invitation and creates the normal role-scoped HRIS web session.
+
+Security boundaries:
+
+- HR can grant `employee` or `manager` access.
+- Only an admin can grant `hr` or `admin` access.
+- Employee/manager invitation emails must match the linked employee work email.
+- Reissuing an invitation invalidates the prior pending token for that email.
+- Existing users can join another organization without having their password overwritten.
 
 ## Run the desktop app
 
@@ -74,9 +99,9 @@ cd apps/desktop
 wails dev
 ```
 
-Sign in using an organization account. The desktop access token is stored in the operating-system keychain and is never written to SQLite or browser local storage.
+The desktop application accepts HR/admin accounts only. Its cloud access token is stored in the operating-system keychain and is never written to SQLite or browser local storage.
 
-## API auth flow
+## API auth and workflow endpoints
 
 Login:
 
@@ -97,17 +122,39 @@ Use the returned token as:
 Authorization: Bearer <access_token>
 ```
 
-Protected endpoints currently include:
+Core protected endpoints include:
 
 - `GET /api/v1/auth/me`
 - `GET /api/v1/dashboard`
-- `GET /api/v1/employees`
-- `POST /api/v1/employees`
-- `PATCH /api/v1/employees/{id}`
-- `DELETE /api/v1/employees/{id}` — archives rather than hard-deletes
-- `GET /api/v1/leave/requests`
+- `GET|POST /api/v1/employees`
+- `PATCH|DELETE /api/v1/employees/{id}`
+- `GET|POST /api/v1/leave/requests`
+- `POST /api/v1/leave/requests/{id}/decision`
+- `GET /api/v1/attendance`
+- `POST /api/v1/attendance/check-in`
+- `POST /api/v1/attendance/check-out`
+- `GET /api/v1/audit`
+- `GET|POST /api/v1/access/invitations`
+- `POST /api/v1/access/invitations/{id}/revoke`
 - `POST /api/v1/sync/push`
 - `GET /api/v1/sync/pull`
+
+Public token-bound onboarding endpoints:
+
+- `POST /api/v1/access/invitations/inspect`
+- `POST /api/v1/access/invitations/accept`
+
+## Database migrations
+
+Fresh environments should initialize `db/schema.sql`.
+
+Existing environments created before tenant-scoped employee IDs should apply:
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/002_tenant_scoped_employee_ids.sql
+```
+
+The migration removes the legacy global uniqueness constraint from `employees.id`. Employee identity is scoped by the composite `(organization_id, id)` primary key, allowing separate organizations to safely use the same internal employee ID.
 
 ## Production configuration
 
@@ -117,7 +164,11 @@ Required API configuration:
 - `JWT_SECRET` — minimum 32 characters; inject from a secret store
 - `WEB_ORIGIN`
 
-Optional bootstrap configuration for a new environment:
+Recommended web configuration:
+
+- `API_INTERNAL_URL` — server-side route-handler URL for the Go API
+
+Optional bootstrap/demo configuration:
 
 - `BOOTSTRAP_ORG_NAME`
 - `BOOTSTRAP_ORG_SLUG`
@@ -125,20 +176,19 @@ Optional bootstrap configuration for a new environment:
 - `BOOTSTRAP_ADMIN_EMAIL`
 - `BOOTSTRAP_ADMIN_PASSWORD`
 - `SEED_DEMO_DATA`
+- `SEED_DEMO_PASSWORD`
 
-Do not enable demo seeding or keep bootstrap credentials in production after initial provisioning.
+## Next development layers
 
-## Next milestones
-
-1. Schema migrations and automated production migration job
-2. Refresh-token/session revocation and SSO/OIDC
-3. Fine-grained manager/team permissions
-4. Conflict-resolution UI + delta sync cursors
-5. Employee onboarding/offboarding workflows
-6. Leave approvals + attendance/timesheets
-7. Payroll and compensation
-8. Performance and recruiting workflows
-9. Documents, notifications and richer audit reporting
+1. Automated/versioned production migration runner
+2. Refresh-token/session revocation + SSO/OIDC
+3. Leave balances, leave policies and company holidays
+4. Work schedules, timesheets and attendance corrections
+5. Payroll and compensation
+6. Performance goals/reviews
+7. Recruiting pipeline
+8. Documents and notifications
+9. Desktop conflict-resolution UI + delta sync
 10. Permission-aware AI HR copilot
 
 ## OpenChoreo
