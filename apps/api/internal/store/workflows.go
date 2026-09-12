@@ -22,7 +22,7 @@ func (s *Store) EmployeeIDForUser(ctx context.Context, orgID, userID string) (st
 	return employeeID, err
 }
 
-func (s *Store) ListLeaveRequestsScoped(ctx context.Context, orgID, scopeEmployeeID string, includeReports bool) ([]model.LeaveRequest, error) {
+func (s *Store) ListLeaveRequestsScoped(ctx context.Context, orgID, scopeEmployeeID string, includeReports bool) ([]model.LeaveWorkflowRequest, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT l.id::text, l.employee_id, trim(e.first_name || ' ' || e.last_name), l.leave_type,
 		       to_char(l.start_date, 'YYYY-MM-DD'), to_char(l.end_date, 'YYYY-MM-DD'),
@@ -40,7 +40,7 @@ func (s *Store) ListLeaveRequestsScoped(ctx context.Context, orgID, scopeEmploye
 	}
 	defer rows.Close()
 
-	var requests []model.LeaveRequest
+	var requests []model.LeaveWorkflowRequest
 	for rows.Next() {
 		request, err := scanWorkflowLeaveRequest(rows)
 		if err != nil {
@@ -51,7 +51,7 @@ func (s *Store) ListLeaveRequestsScoped(ctx context.Context, orgID, scopeEmploye
 	return requests, rows.Err()
 }
 
-func (s *Store) CreateLeaveRequest(ctx context.Context, orgID, employeeID, leaveType string, start, end time.Time, days float64, reason string) (model.LeaveRequest, error) {
+func (s *Store) CreateLeaveRequest(ctx context.Context, orgID, employeeID, leaveType string, start, end time.Time, days float64, reason string) (model.LeaveWorkflowRequest, error) {
 	return scanWorkflowLeaveRequest(s.pool.QueryRow(ctx, `
 		WITH created AS (
 			INSERT INTO leave_requests (organization_id, employee_id, leave_type, start_date, end_date, days, reason)
@@ -67,22 +67,22 @@ func (s *Store) CreateLeaveRequest(ctx context.Context, orgID, employeeID, leave
 		orgID, employeeID, leaveType, start.Format("2006-01-02"), end.Format("2006-01-02"), days, reason))
 }
 
-func (s *Store) DecideLeaveRequest(ctx context.Context, orgID, requestID, approverEmployeeID, decision, note string) (model.LeaveRequest, error) {
+func (s *Store) DecideLeaveRequest(ctx context.Context, orgID, requestID, approverEmployeeID, decision, note string) (model.LeaveWorkflowRequest, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return model.LeaveRequest{}, err
+		return model.LeaveWorkflowRequest{}, err
 	}
 	defer tx.Rollback(ctx)
 
 	var currentStatus string
 	if err := tx.QueryRow(ctx, `SELECT status FROM leave_requests WHERE organization_id=$1::uuid AND id=$2::uuid FOR UPDATE`, orgID, requestID).Scan(&currentStatus); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return model.LeaveRequest{}, ErrNotFound
+			return model.LeaveWorkflowRequest{}, ErrNotFound
 		}
-		return model.LeaveRequest{}, err
+		return model.LeaveWorkflowRequest{}, err
 	}
 	if currentStatus != "pending" {
-		return model.LeaveRequest{}, ErrConflict
+		return model.LeaveWorkflowRequest{}, ErrConflict
 	}
 
 	request, err := scanWorkflowLeaveRequest(tx.QueryRow(ctx, `
@@ -102,10 +102,10 @@ func (s *Store) DecideLeaveRequest(ctx context.Context, orgID, requestID, approv
 		LEFT JOIN employees a ON a.id=l.approver_id AND a.organization_id=l.organization_id`,
 		orgID, requestID, decision, approverEmployeeID, note))
 	if err != nil {
-		return model.LeaveRequest{}, err
+		return model.LeaveWorkflowRequest{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return model.LeaveRequest{}, err
+		return model.LeaveWorkflowRequest{}, err
 	}
 	return request, nil
 }
@@ -210,8 +210,8 @@ func (s *Store) AuditEvents(ctx context.Context, orgID string, limit int) ([]mod
 	return events, rows.Err()
 }
 
-func scanWorkflowLeaveRequest(row rowScanner) (model.LeaveRequest, error) {
-	var request model.LeaveRequest
+func scanWorkflowLeaveRequest(row rowScanner) (model.LeaveWorkflowRequest, error) {
+	var request model.LeaveWorkflowRequest
 	err := row.Scan(
 		&request.ID, &request.EmployeeID, &request.Employee, &request.Type, &request.Start, &request.End,
 		&request.Days, &request.Reason, &request.Status, &request.ApproverID, &request.Approver,
