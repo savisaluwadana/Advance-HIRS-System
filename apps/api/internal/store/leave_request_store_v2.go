@@ -118,7 +118,7 @@ func (s *Store) DecideLeaveRequestV2(ctx context.Context, orgID, requestID, appr
 	}
 
 	if decision == "approved" {
-		policy, err := s.policyForDecision(ctx, tx, orgID, leaveType, policyID)
+		policy, err := s.policyForDecision(ctx, tx, orgID, employeeID, leaveType, policyID, start)
 		if err != nil {
 			return model.LeaveWorkflowRequest{}, err
 		}
@@ -240,21 +240,32 @@ func (s *Store) CancelLeaveRequestV2(ctx context.Context, orgID, requestID, acto
 	return request, nil
 }
 
-func (s *Store) policyForDecision(ctx context.Context, tx pgx.Tx, orgID, leaveType, policyID string) (model.LeavePolicy, error) {
+func (s *Store) policyForDecision(ctx context.Context, tx pgx.Tx, orgID, employeeID, leaveType, policyID string, onDate time.Time) (model.LeavePolicy, error) {
 	if policyID != "" {
 		return scanLeavePolicy(tx.QueryRow(ctx, `
 			SELECT id::text, code, name, leave_type, annual_entitlement::float8,
 			       carry_over_limit::float8, track_balance, allow_negative,
-			       requires_approval, active, created_at, updated_at
+			       requires_approval, is_default, active, created_at, updated_at
 			FROM leave_policies WHERE organization_id=$1::uuid AND id=$2::uuid`, orgID, policyID))
 	}
 	return scanLeavePolicy(tx.QueryRow(ctx, `
-		SELECT id::text, code, name, leave_type, annual_entitlement::float8,
-		       carry_over_limit::float8, track_balance, allow_negative,
-		       requires_approval, active, created_at, updated_at
-		FROM leave_policies
-		WHERE organization_id=$1::uuid AND leave_type=$2 AND active=true
-		LIMIT 1`, orgID, leaveType))
+		SELECT p.id::text, p.code, p.name, p.leave_type, p.annual_entitlement::float8,
+		       p.carry_over_limit::float8, p.track_balance, p.allow_negative,
+		       p.requires_approval, p.is_default, p.active, p.created_at, p.updated_at
+		FROM leave_policies p
+		LEFT JOIN leave_policy_assignments a
+		  ON a.policy_id=p.id AND a.organization_id=p.organization_id
+		 AND a.employee_id=$2
+		 AND a.effective_from <= $4::date
+		 AND (a.effective_to IS NULL OR a.effective_to >= $4::date)
+		WHERE p.organization_id=$1::uuid
+		  AND p.leave_type=$3
+		  AND p.active=true
+		  AND (a.id IS NOT NULL OR p.is_default=true)
+		ORDER BY CASE WHEN a.id IS NOT NULL THEN 0 ELSE 1 END,
+		         a.effective_from DESC NULLS LAST,
+		         p.is_default DESC
+		LIMIT 1`, orgID, employeeID, leaveType, onDate.Format("2006-01-02")))
 }
 
 func (s *Store) calculateLeaveDaysTx(ctx context.Context, tx pgx.Tx, orgID, employeeID string, start, end time.Time, partialDay string) (float64, map[int]float64, error) {
