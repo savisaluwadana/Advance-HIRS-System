@@ -60,7 +60,7 @@ Admin:        admin@advancehris.local
 Password:     local-admin-change-me
 Manager:      sara@northstar.local
 Employee:     ava@northstar.local
-Demo password: local-demo-change-me
+Demo password: local-demo-password-2026
 ```
 
 These accounts are local/demo-only. Never enable demo seeding or reuse these credentials in a shared or production environment.
