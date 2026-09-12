@@ -34,21 +34,12 @@ type OperationsState = {
   attendance: AttendanceEntry[];
   audit: AuditEvent[];
 };
-
-declare global {
-  interface Window {
-    go?: {
-      main?: {
-        App?: {
-          GetOperationsState?: () => Promise<OperationsState>;
-          DecideLeaveRequest?: (id: string, decision: string, note: string) => Promise<LeaveRequest>;
-          CheckInEmployee?: (employeeID: string, workMode: string) => Promise<AttendanceEntry>;
-          CheckOutEmployee?: (employeeID: string) => Promise<AttendanceEntry>;
-        };
-      };
-    };
-  }
-}
+type WorkflowBridge = {
+  GetOperationsState?: () => Promise<OperationsState>;
+  DecideLeaveRequest?: (id: string, decision: string, note: string) => Promise<LeaveRequest>;
+  CheckInEmployee?: (employeeID: string, workMode: string) => Promise<AttendanceEntry>;
+  CheckOutEmployee?: (employeeID: string) => Promise<AttendanceEntry>;
+};
 
 export default function OperationsPanel({employees, role, onError}: {employees: Employee[]; role: string; onError: (message: string) => void}) {
   const [state, setState] = useState<OperationsState>({leave_requests: [], attendance: [], audit: []});
@@ -56,7 +47,7 @@ export default function OperationsPanel({employees, role, onError}: {employees: 
   const [busy, setBusy] = useState("");
   const [employeeID, setEmployeeID] = useState("");
   const [workMode, setWorkMode] = useState("office");
-  const api = window.go?.main?.App;
+  const api = (window as unknown as {go?: {main?: {App?: WorkflowBridge}}}).go?.main?.App;
 
   async function refresh() {
     if (!api?.GetOperationsState) return;
