@@ -28,7 +28,7 @@ func main() {
 
 	if strings.TrimSpace(os.Getenv("BOOTSTRAP_ORG_SLUG")) != "" {
 		seedDemo := strings.EqualFold(os.Getenv("SEED_DEMO_DATA"), "true")
-		orgID, err := dataStore.Bootstrap(
+		orgID, err := dataStore.BootstrapV2(
 			ctx,
 			envOr("BOOTSTRAP_ORG_NAME", "Northstar Labs"),
 			os.Getenv("BOOTSTRAP_ORG_SLUG"),
