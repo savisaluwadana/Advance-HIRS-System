@@ -26,8 +26,34 @@ jobs:
       - run: npm run build
 
   api:
-    name: API build
+    name: API + PostgreSQL integration
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: hris
+          POSTGRES_USER: hris
+          POSTGRES_PASSWORD: hris
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hris -d hris"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      API_PORT: "8080"
+      DATABASE_URL: postgres://hris:hris@localhost:5432/hris?sslmode=disable
+      WEB_ORIGIN: http://localhost:3000
+      JWT_SECRET: ci-test-secret-0123456789abcdef0123456789abcdef
+      BOOTSTRAP_ORG_NAME: Northstar Labs
+      BOOTSTRAP_ORG_SLUG: northstar
+      BOOTSTRAP_ADMIN_NAME: CI Administrator
+      BOOTSTRAP_ADMIN_EMAIL: admin@advancehris.local
+      BOOTSTRAP_ADMIN_PASSWORD: ci-admin-password-2026
+      SEED_DEMO_DATA: "true"
+      SEED_DEMO_PASSWORD: ci-demo-password-2026
     defaults:
       run:
         working-directory: apps/api
@@ -37,23 +63,74 @@ jobs:
         with:
           go-version: '1.25.x'
           cache-dependency-path: apps/api/go.mod
+      - run: go mod tidy
+      - name: Initialize PostgreSQL schema
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f ../../db/schema.sql
       - run: go test ./...
       - run: go build ./cmd/server
+      - name: API auth, RBAC, leave, attendance and audit smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          go run ./cmd/server >/tmp/advance-hris-api.log 2>&1 &
+          API_PID=$!
+          trap 'kill "$API_PID" 2>/dev/null || true' EXIT
 
-  desktop-core:
-    name: Desktop Go core
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/desktop
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.25.x'
-          cache-dependency-path: apps/desktop/go.mod
-      - run: go mod tidy
-      - run: go test ./internal/...
+          for i in {1..30}; do
+            if curl -sf http://localhost:8080/health >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -sf http://localhost:8080/health >/dev/null
+          JSON=(-H 'Content-Type: application/json')
+
+          ADMIN_TOKEN=$(curl -sf -X POST http://localhost:8080/api/v1/auth/login "${JSON[@]}" \
+            -d '{"email":"admin@advancehris.local","password":"ci-admin-password-2026","organization_slug":"northstar"}' \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
+          ADMIN_AUTH=(-H "Authorization: Bearer $ADMIN_TOKEN")
+          curl -sf http://localhost:8080/api/v1/auth/me "${ADMIN_AUTH[@]}" >/dev/null
+          curl -sf http://localhost:8080/api/v1/employees "${ADMIN_AUTH[@]}" \
+            | python3 -c 'import json,sys; assert json.load(sys.stdin)["total"] >= 4'
+
+          ADMIN_LEAVE_ID=$(curl -sf -X POST http://localhost:8080/api/v1/leave/requests \
+            "${ADMIN_AUTH[@]}" "${JSON[@]}" \
+            -d '{"employee_id":"emp_001","leave_type":"annual","start_date":"2026-09-20","end_date":"2026-09-21","reason":"CI admin workflow"}' \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+          curl -sf -X POST "http://localhost:8080/api/v1/leave/requests/$ADMIN_LEAVE_ID/decision" \
+            "${ADMIN_AUTH[@]}" "${JSON[@]}" -d '{"decision":"approved","note":"CI approval"}' \
+            | python3 -c 'import json,sys; assert json.load(sys.stdin)["status"] == "approved"'
+
+          curl -sf -X POST http://localhost:8080/api/v1/attendance/check-in \
+            "${ADMIN_AUTH[@]}" "${JSON[@]}" -d '{"employee_id":"emp_002","work_mode":"remote"}' \
+            | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data["employee_id"] == "emp_002" and data["check_in"]'
+          curl -sf -X POST http://localhost:8080/api/v1/attendance/check-out \
+            "${ADMIN_AUTH[@]}" "${JSON[@]}" -d '{"employee_id":"emp_002"}' \
+            | python3 -c 'import json,sys; assert json.load(sys.stdin)["check_out"]'
+
+          EMPLOYEE_TOKEN=$(curl -sf -X POST http://localhost:8080/api/v1/auth/login "${JSON[@]}" \
+            -d '{"email":"ava@northstar.local","password":"ci-demo-password-2026","organization_slug":"northstar"}' \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
+          EMPLOYEE_AUTH=(-H "Authorization: Bearer $EMPLOYEE_TOKEN")
+          EMPLOYEE_LIST_STATUS=$(curl -s -o /tmp/employee-list.json -w '%{http_code}' http://localhost:8080/api/v1/employees "${EMPLOYEE_AUTH[@]}")
+          test "$EMPLOYEE_LIST_STATUS" = "403"
+          EMPLOYEE_LEAVE_ID=$(curl -sf -X POST http://localhost:8080/api/v1/leave/requests \
+            "${EMPLOYEE_AUTH[@]}" "${JSON[@]}" \
+            -d '{"leave_type":"annual","start_date":"2026-09-24","end_date":"2026-09-25","reason":"Employee self-service CI"}' \
+            | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data["employee_id"] == "emp_001"; print(data["id"])')
+
+          MANAGER_TOKEN=$(curl -sf -X POST http://localhost:8080/api/v1/auth/login "${JSON[@]}" \
+            -d '{"email":"sara@northstar.local","password":"ci-demo-password-2026","organization_slug":"northstar"}' \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
+          MANAGER_AUTH=(-H "Authorization: Bearer $MANAGER_TOKEN")
+          curl -sf http://localhost:8080/api/v1/leave/requests "${MANAGER_AUTH[@]}" \
+            | python3 -c 'import json,sys; data=json.load(sys.stdin)["data"]; assert any(x["employee_id"] == "emp_001" for x in data)'
+          curl -sf -X POST "http://localhost:8080/api/v1/leave/requests/$EMPLOYEE_LEAVE_ID/decision" \
+            "${MANAGER_AUTH[@]}" "${JSON[@]}" -d '{"decision":"approved","note":"Manager CI approval"}' \
+            | python3 -c 'import json,sys; assert json.load(sys.stdin)["status"] == "approved"'
+
+          curl -sf http://localhost:8080/api/v1/attendance "${ADMIN_AUTH[@]}" \
+            | python3 -c 'import json,sys; assert json.load(sys.stdin)["total"] >= 1'
+          curl -sf 'http://localhost:8080/api/v1/audit?limit=30' "${ADMIN_AUTH[@]}" \
+            | python3 -c 'import json,sys; assert json.load(sys.stdin)["total"] >= 6'
 
   desktop-ui:
     name: Desktop UI build
@@ -70,3 +147,18 @@ jobs:
           cache-dependency-path: apps/desktop/frontend/package.json
       - run: npm install
       - run: npm run build
+
+  desktop-core:
+    name: Desktop Go core
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache-dependency-path: apps/desktop/go.mod
+      - run: go mod tidy
+      - run: go test ./internal/...
