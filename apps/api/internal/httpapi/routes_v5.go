@@ -45,10 +45,10 @@ func NewHandlerV5(dataStore *store.Store, authManager *auth.Manager, allowedOrig
 
 	mux.HandleFunc("GET /api/v1/attendance/schedules", server.authorize(server.workSchedulesV2, "admin", "hr", "manager", "employee"))
 	mux.HandleFunc("PUT /api/v1/attendance/schedules", server.authorize(server.upsertWorkScheduleV2, "admin", "hr"))
-	mux.HandleFunc("POST /api/v1/attendance/schedules/{id}/assignments", server.authorize(server.assignWorkScheduleV2, "admin", "hr"))
+	mux.HandleFunc("POST /api/v1/attendance/schedules/{id}/assignments", server.authorize(server.assignWorkScheduleSafeV2, "admin", "hr"))
 	mux.HandleFunc("GET /api/v1/attendance", server.authorize(server.attendanceV2, "admin", "hr", "manager", "employee"))
 	mux.HandleFunc("POST /api/v1/attendance/check-in", server.authorize(server.checkInV2, "admin", "hr", "manager", "employee"))
-	mux.HandleFunc("POST /api/v1/attendance/check-out", server.authorize(server.checkOutV2, "admin", "hr", "manager", "employee"))
+	mux.HandleFunc("POST /api/v1/attendance/check-out", server.authorize(server.checkOutTodayV2, "admin", "hr", "manager", "employee"))
 	mux.HandleFunc("GET /api/v1/attendance/corrections", server.authorize(server.attendanceCorrectionsV2, "admin", "hr", "manager", "employee"))
 	mux.HandleFunc("POST /api/v1/attendance/corrections", server.authorize(server.createAttendanceCorrectionV2, "admin", "hr", "manager", "employee"))
 	mux.HandleFunc("POST /api/v1/attendance/corrections/{id}/decision", server.authorize(server.decideAttendanceCorrectionV2, "admin", "hr", "manager"))
