@@ -34,7 +34,7 @@ export default function AttendanceWorkspace() {
 
   const elevated = user?.role === "admin" || user?.role === "hr";
   const manager = user?.role === "manager";
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateString(new Date());
 
   async function load(targetEmployee = selectedEmployee) {
     setLoading(true);
@@ -121,10 +121,9 @@ export default function AttendanceWorkspace() {
 
   const currentEntry = useMemo(() => {
     if (elevated) return entries.find((entry) => entry.employee_id === selectedEmployee);
-    if (user?.role === "employee") return entries[0];
-    return entries.find((entry) => entry.employee === user?.display_name) || entries[0];
+    return entries.find((entry) => entry.employee === user?.display_name);
   }, [entries, selectedEmployee, elevated, user]);
-  const pendingCorrections = corrections.filter((item) => item.status === "pending");
+  const pendingCorrections = corrections.filter((item) => item.status === "pending" && (!manager || item.employee !== user?.display_name));
 
   if (loading && !user) return <main className={styles.state}>Loading attendance…</main>;
   if (!user) return <main className={styles.state}><h1>Attendance unavailable</h1><p>{error || "Sign in first."}</p><a href="/">Return to overview</a></main>;
@@ -180,4 +179,5 @@ export default function AttendanceWorkspace() {
 function Metric({label, value, meta}: {label: string; value: string; meta: string}) { return <article><span>{label}</span><strong>{value}</strong><small>{meta}</small></article>; }
 function formatTime(value?: string) { return value ? new Date(value).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"}) : "—"; }
 function formatMinutes(value: number) { const h = Math.floor(value / 60); const m = value % 60; return `${h}h ${m}m`; }
-function monthRange() { const now = new Date(); const from = new Date(now.getFullYear(), now.getMonth(), 1); const to = new Date(now.getFullYear(), now.getMonth() + 1, 0); const local = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; return {from: local(from), to: local(to)}; }
+function localDateString(date: Date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; }
+function monthRange() { const now = new Date(); const from = new Date(now.getFullYear(), now.getMonth(), 1); const to = new Date(now.getFullYear(), now.getMonth() + 1, 0); return {from: localDateString(from), to: localDateString(to)}; }
