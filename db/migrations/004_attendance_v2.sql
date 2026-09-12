@@ -42,6 +42,7 @@ ALTER TABLE attendance_entries
   ADD COLUMN IF NOT EXISTS scheduled_start_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS scheduled_end_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS break_minutes INTEGER NOT NULL DEFAULT 0 CHECK (break_minutes >= 0),
+  ADD COLUMN IF NOT EXISTS overtime_threshold_minutes INTEGER NOT NULL DEFAULT 0 CHECK (overtime_threshold_minutes >= 0),
   ADD COLUMN IF NOT EXISTS late_minutes INTEGER NOT NULL DEFAULT 0 CHECK (late_minutes >= 0),
   ADD COLUMN IF NOT EXISTS early_leave_minutes INTEGER NOT NULL DEFAULT 0 CHECK (early_leave_minutes >= 0),
   ADD COLUMN IF NOT EXISTS worked_minutes INTEGER NOT NULL DEFAULT 0 CHECK (worked_minutes >= 0),
