@@ -66,6 +66,23 @@ jobs:
       - run: go mod tidy
       - name: Initialize PostgreSQL schema
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f ../../db/schema.sql
+      - name: Verify employee IDs are tenant scoped
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          WITH org AS (
+            INSERT INTO organizations (name, slug) VALUES ('Tenant Two', 'tenant-two') RETURNING id
+          )
+          INSERT INTO employees (
+            id, organization_id, employee_number, first_name, last_name, work_email,
+            job_title, department, location, employment_type, status, server_version
+          )
+          SELECT 'emp_001', id, 'EMP-001', 'Second', 'Tenant', 'employee@tenant-two.local',
+                 'Engineer', 'Engineering', 'Remote', 'full_time', 'active', 1
+          FROM org;
+          SQL
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f ../../db/migrations/002_tenant_scoped_employee_ids.sql
       - run: go test ./...
       - run: go build ./cmd/server
       - name: API auth, RBAC, invitations, leave, attendance and audit smoke test
@@ -91,7 +108,6 @@ jobs:
           curl -sf http://localhost:8080/api/v1/employees "${ADMIN_AUTH[@]}" \
             | python3 -c 'import json,sys; assert json.load(sys.stdin)["total"] >= 4'
 
-          # Admin can invite HR. The raw token is returned once, while only its hash is stored.
           HR_INVITE=$(curl -sf -X POST http://localhost:8080/api/v1/access/invitations \
             "${ADMIN_AUTH[@]}" "${JSON[@]}" -d '{"email":"hr-ci@northstar.local","role":"hr"}')
           HR_TOKEN=$(printf '%s' "$HR_INVITE" | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data["invitation"]["role"] == "hr"; print(data["token"])')
@@ -104,17 +120,14 @@ jobs:
           HR_ACCESS_TOKEN=$(printf '%s' "$HR_ACCEPT" | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data["created_user"] is True; print(data["access_token"])')
           HR_AUTH=(-H "Authorization: Bearer $HR_ACCESS_TOKEN")
 
-          # Accepted tokens are one-time only.
           REUSE_STATUS=$(curl -s -o /tmp/reuse.json -w '%{http_code}' -X POST http://localhost:8080/api/v1/access/invitations/accept "${JSON[@]}" \
             -d "{\"token\":\"$HR_TOKEN\",\"display_name\":\"Again\",\"password\":\"another-password-2026\"}")
           test "$REUSE_STATUS" = "404"
 
-          # HR must not be able to grant privileged admin/HR access.
           HR_ESCALATION_STATUS=$(curl -s -o /tmp/hr-escalation.json -w '%{http_code}' -X POST http://localhost:8080/api/v1/access/invitations \
             "${HR_AUTH[@]}" "${JSON[@]}" -d '{"email":"admin2@northstar.local","role":"admin"}')
           test "$HR_ESCALATION_STATUS" = "403"
 
-          # Linked employee access must use the actual employee work email.
           MISMATCH_STATUS=$(curl -s -o /tmp/invite-mismatch.json -w '%{http_code}' -X POST http://localhost:8080/api/v1/access/invitations \
             "${HR_AUTH[@]}" "${JSON[@]}" -d '{"email":"wrong@northstar.local","role":"employee","employee_id":"emp_004"}')
           test "$MISMATCH_STATUS" = "400"
