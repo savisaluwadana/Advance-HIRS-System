@@ -56,6 +56,21 @@ CREATE TABLE IF NOT EXISTS organization_memberships (
   FOREIGN KEY (organization_id, employee_id) REFERENCES employees(organization_id, id)
 );
 
+CREATE TABLE IF NOT EXISTS access_invitations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  email TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('admin', 'hr', 'manager', 'employee')),
+  employee_id TEXT,
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  accepted_at TIMESTAMPTZ,
+  revoked_at TIMESTAMPTZ,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  FOREIGN KEY (organization_id, employee_id) REFERENCES employees(organization_id, id)
+);
+
 CREATE TABLE IF NOT EXISTS leave_requests (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -120,6 +135,10 @@ CREATE TABLE IF NOT EXISTS audit_events (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_invitation_pending_email
+  ON access_invitations(organization_id, lower(email))
+  WHERE accepted_at IS NULL AND revoked_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_invitations_org_created ON access_invitations(organization_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_memberships_user ON organization_memberships(user_id, status);
 CREATE INDEX IF NOT EXISTS idx_employees_org_status ON employees(organization_id, status);
 CREATE INDEX IF NOT EXISTS idx_employees_org_department ON employees(organization_id, department);
