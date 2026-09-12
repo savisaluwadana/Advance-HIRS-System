@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/savisaluwadana/Advance-HIRS-System/apps/api/internal/model"
 )
 
@@ -50,7 +49,3 @@ func (s *Store) seedDemoEmployeesTenantSafe(ctx context.Context, orgID string) e
 	}
 	return tx.Commit(ctx)
 }
-
-// Keep pgx imported here so this file documents that the bootstrap remains
-// transaction-compatible with the rest of the store package.
-var _ pgx.Tx
