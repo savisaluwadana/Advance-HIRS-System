@@ -156,6 +156,9 @@ func (a *App) Login(email, password, organizationSlug string) (domain.AuthSessio
 	if response.AccessToken == "" {
 		return domain.AuthSession{}, fmt.Errorf("cloud returned an empty access token")
 	}
+	if !desktopRoleAllowed(response.User.Role) {
+		return domain.AuthSession{}, fmt.Errorf("the desktop console is restricted to HR and administrator accounts; use the web portal for %s access", response.User.Role)
+	}
 	if err := secure.SaveAccessToken(response.AccessToken); err != nil {
 		return domain.AuthSession{}, fmt.Errorf("save desktop session: %w", err)
 	}
@@ -179,8 +182,8 @@ func (a *App) SaveEmployee(employee domain.Employee) error {
 	if a.initErr != nil {
 		return a.initErr
 	}
-	if !a.authenticated {
-		return fmt.Errorf("sign in is required before editing HR records")
+	if !a.authenticated || !desktopRoleAllowed(a.user.Role) {
+		return fmt.Errorf("HR or administrator access is required before editing HR records")
 	}
 	if employee.ID == "" {
 		employee.ID = fmt.Sprintf("emp_%d", time.Now().UnixNano())
@@ -193,8 +196,8 @@ func (a *App) SyncNow() (domain.SyncResult, error) {
 	if a.initErr != nil {
 		return domain.SyncResult{}, a.initErr
 	}
-	if !a.authenticated {
-		return domain.SyncResult{}, fmt.Errorf("sign in is required before cloud sync")
+	if !a.authenticated || !desktopRoleAllowed(a.user.Role) {
+		return domain.SyncResult{}, fmt.Errorf("HR or administrator access is required before cloud sync")
 	}
 	result, err := a.syncer.Sync(a.ctx)
 	if err != nil {
@@ -229,7 +232,16 @@ func (a *App) restoreSession(ctx context.Context, token string) error {
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		return err
 	}
+	if !desktopRoleAllowed(response.User.Role) {
+		_ = secure.ClearAccessToken()
+		a.syncer.SetAccessToken("")
+		return fmt.Errorf("stored account is not permitted to use the HR desktop console")
+	}
 	a.authenticated = true
 	a.user = response.User
 	return nil
+}
+
+func desktopRoleAllowed(role string) bool {
+	return role == "admin" || role == "hr"
 }
