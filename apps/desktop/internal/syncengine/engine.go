@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/savisaluwadana/Advance-HIRS-System/apps/desktop/internal/domain"
@@ -18,6 +19,8 @@ type Engine struct {
 	store   *storage.Store
 	baseURL string
 	client  *http.Client
+	mu      sync.RWMutex
+	token   string
 }
 
 type pushRequest struct {
@@ -37,12 +40,34 @@ type pullResponse struct {
 	Cursor    string            `json:"cursor"`
 }
 
-func New(store *storage.Store, baseURL string) *Engine {
+func New(store *storage.Store, baseURL, token string) *Engine {
 	return &Engine{
 		store:   store,
 		baseURL: strings.TrimRight(baseURL, "/"),
 		client:  &http.Client{Timeout: 12 * time.Second},
+		token:   token,
 	}
+}
+
+func (e *Engine) SetAccessToken(token string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.token = token
+}
+
+func (e *Engine) accessToken() string {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.token
+}
+
+func (e *Engine) authorize(req *http.Request) error {
+	token := strings.TrimSpace(e.accessToken())
+	if token == "" {
+		return fmt.Errorf("sign in is required before cloud sync")
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	return nil
 }
 
 func (e *Engine) Sync(ctx context.Context) (domain.SyncResult, error) {
@@ -61,6 +86,9 @@ func (e *Engine) Sync(ctx context.Context) (domain.SyncResult, error) {
 		if err != nil {
 			return result, err
 		}
+		if err := e.authorize(req); err != nil {
+			return result, err
+		}
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := e.client.Do(req)
 		if err != nil {
@@ -70,6 +98,9 @@ func (e *Engine) Sync(ctx context.Context) (domain.SyncResult, error) {
 			return result, nil
 		}
 		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			return result, fmt.Errorf("desktop session is no longer authorized; sign in again")
+		}
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			return result, fmt.Errorf("sync push failed: %s", resp.Status)
 		}
@@ -99,6 +130,9 @@ func (e *Engine) Sync(ctx context.Context) (domain.SyncResult, error) {
 	if err != nil {
 		return result, err
 	}
+	if err := e.authorize(req); err != nil {
+		return result, err
+	}
 	resp, err := e.client.Do(req)
 	if err != nil {
 		result.Offline = true
@@ -107,6 +141,9 @@ func (e *Engine) Sync(ctx context.Context) (domain.SyncResult, error) {
 		return result, nil
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return result, fmt.Errorf("desktop session is no longer authorized; sign in again")
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return result, fmt.Errorf("sync pull failed: %s", resp.Status)
 	}
