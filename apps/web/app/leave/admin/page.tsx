@@ -5,7 +5,7 @@ import styles from "./admin.module.css";
 
 type User = {display_name: string; organization: string; role: string};
 type Employee = {id: string; name: string; department: string};
-type Policy = {id: string; code: string; name: string; leave_type: string; annual_entitlement: number; carry_over_limit: number; track_balance: boolean; allow_negative: boolean; requires_approval: boolean};
+type Policy = {id: string; code: string; name: string; leave_type: string; annual_entitlement: number; carry_over_limit: number; track_balance: boolean; allow_negative: boolean; requires_approval: boolean; is_default: boolean};
 type Holiday = {id: string; date: string; name: string; location?: string};
 
 async function requestJSON<T>(url: string, init?: RequestInit): Promise<T> {
@@ -25,6 +25,12 @@ export default function LeaveAdmin() {
   const [entitlement, setEntitlement] = useState("20");
   const [carryOver, setCarryOver] = useState("5");
   const [allowNegative, setAllowNegative] = useState(false);
+  const [newPolicyCode, setNewPolicyCode] = useState("");
+  const [newPolicyName, setNewPolicyName] = useState("");
+  const [newPolicyType, setNewPolicyType] = useState("annual");
+  const [newPolicyEntitlement, setNewPolicyEntitlement] = useState("20");
+  const [newPolicyCarryOver, setNewPolicyCarryOver] = useState("0");
+  const [newPolicyTrackBalance, setNewPolicyTrackBalance] = useState(true);
   const [holidayDate, setHolidayDate] = useState("");
   const [holidayName, setHolidayName] = useState("");
   const [holidayLocation, setHolidayLocation] = useState("");
@@ -45,16 +51,17 @@ export default function LeaveAdmin() {
         requestJSON<{data: Employee[]}>("/api/hr/employees"),
         requestJSON<{data: Holiday[]}>(`/api/hr/leave/holidays?year=${new Date().getFullYear()}`),
       ]);
+      const nextPolicies = policyResponse.data ?? [];
       setUser(me.user);
-      setPolicies(policyResponse.data ?? []);
+      setPolicies(nextPolicies);
       setEmployees(employeeResponse.data ?? []);
       setHolidays(holidayResponse.data ?? []);
-      const firstPolicy = policyResponse.data?.[0];
-      if (!selectedPolicy && firstPolicy) {
-        setSelectedPolicy(firstPolicy.id);
-        setEntitlement(String(firstPolicy.annual_entitlement));
-        setCarryOver(String(firstPolicy.carry_over_limit));
-        setAllowNegative(firstPolicy.allow_negative);
+      const chosen = nextPolicies.find((policy) => policy.id === selectedPolicy) ?? nextPolicies[0];
+      if (chosen) {
+        setSelectedPolicy(chosen.id);
+        setEntitlement(String(chosen.annual_entitlement));
+        setCarryOver(String(chosen.carry_over_limit));
+        setAllowNegative(chosen.allow_negative);
       }
       if (!selectedEmployee && employeeResponse.data?.[0]) setSelectedEmployee(employeeResponse.data[0].id);
       setError("");
@@ -72,6 +79,29 @@ export default function LeaveAdmin() {
       setCarryOver(String(policy.carry_over_limit));
       setAllowNegative(policy.allow_negative);
     }
+  }
+
+  async function createPolicy(event: FormEvent) {
+    event.preventDefault(); setBusy("create-policy"); setError("");
+    try {
+      const created = await requestJSON<Policy>("/api/hr/leave/policies", {
+        method: "PUT", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          code: newPolicyCode.trim().toLowerCase(),
+          name: newPolicyName.trim(),
+          leave_type: newPolicyType,
+          annual_entitlement: Number(newPolicyEntitlement),
+          carry_over_limit: Number(newPolicyCarryOver),
+          track_balance: newPolicyTrackBalance,
+          allow_negative: false,
+          requires_approval: true,
+        }),
+      });
+      setNewPolicyCode(""); setNewPolicyName(""); setNewPolicyEntitlement("20"); setNewPolicyCarryOver("0");
+      await load();
+      choosePolicy(created.id);
+    } catch (err) { setError(String(err)); }
+    finally { setBusy(""); }
   }
 
   async function savePolicy(event: FormEvent) {
@@ -149,9 +179,20 @@ export default function LeaveAdmin() {
 
     <section className={styles.grid}>
       <article className={styles.panel}>
+        <div className={styles.heading}><div><p>NEW POLICY</p><h2>Create a policy variant</h2></div><span>Employee-specific</span></div>
+        <form onSubmit={createPolicy}>
+          <div className={styles.fields}><label>Policy code<input required value={newPolicyCode} onChange={(event) => setNewPolicyCode(event.target.value)} placeholder="annual-executive" /></label><label>Name<input required value={newPolicyName} onChange={(event) => setNewPolicyName(event.target.value)} placeholder="Executive annual leave" /></label></div>
+          <div className={styles.fields}><label>Leave type<select value={newPolicyType} onChange={(event) => setNewPolicyType(event.target.value)}><option value="annual">Annual</option><option value="sick">Sick</option><option value="parental">Parental</option><option value="unpaid">Unpaid</option><option value="remote">Remote</option><option value="other">Other</option></select></label><label>Annual entitlement<input type="number" min="0" step="0.5" value={newPolicyEntitlement} onChange={(event) => setNewPolicyEntitlement(event.target.value)} /></label></div>
+          <label>Carry-over cap<input type="number" min="0" step="0.5" value={newPolicyCarryOver} onChange={(event) => setNewPolicyCarryOver(event.target.value)} /></label>
+          <label className={styles.check}><input type="checkbox" checked={newPolicyTrackBalance} onChange={(event) => setNewPolicyTrackBalance(event.target.checked)} />Track an entitlement balance for this policy</label>
+          <button disabled={busy === "create-policy"}>{busy === "create-policy" ? "Creating…" : "Create policy"}</button>
+        </form>
+      </article>
+
+      <article className={styles.panel}>
         <div className={styles.heading}><div><p>POLICY</p><h2>Entitlements & carry-over</h2></div></div>
         <form onSubmit={savePolicy}>
-          <label>Policy<select value={selectedPolicy} onChange={(event) => choosePolicy(event.target.value)}>{policies.map((policy) => <option key={policy.id} value={policy.id}>{policy.name}</option>)}</select></label>
+          <label>Policy<select value={selectedPolicy} onChange={(event) => choosePolicy(event.target.value)}>{policies.map((policy) => <option key={policy.id} value={policy.id}>{policy.name}{policy.is_default ? " · default" : ""}</option>)}</select></label>
           <div className={styles.fields}><label>Annual entitlement<input type="number" min="0" step="0.5" value={entitlement} onChange={(event) => setEntitlement(event.target.value)} /></label><label>Carry-over cap<input type="number" min="0" step="0.5" value={carryOver} onChange={(event) => setCarryOver(event.target.value)} /></label></div>
           <label className={styles.check}><input type="checkbox" checked={allowNegative} onChange={(event) => setAllowNegative(event.target.checked)} />Allow negative balance</label>
           <button disabled={busy === "policy"}>{busy === "policy" ? "Saving…" : "Save policy"}</button>
@@ -162,7 +203,7 @@ export default function LeaveAdmin() {
         <div className={styles.heading}><div><p>ASSIGNMENT</p><h2>Employee policy assignment</h2></div></div>
         <form onSubmit={assignPolicy}>
           <label>Employee<select value={selectedEmployee} onChange={(event) => setSelectedEmployee(event.target.value)}>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name} · {employee.department}</option>)}</select></label>
-          <label>Policy<select value={selectedPolicy} onChange={(event) => choosePolicy(event.target.value)}>{policies.map((policy) => <option key={policy.id} value={policy.id}>{policy.name}</option>)}</select></label>
+          <label>Policy<select value={selectedPolicy} onChange={(event) => choosePolicy(event.target.value)}>{policies.map((policy) => <option key={policy.id} value={policy.id}>{policy.name}{policy.is_default ? " · default" : ""}</option>)}</select></label>
           <label>Effective from<input type="date" value={effectiveFrom} onChange={(event) => setEffectiveFrom(event.target.value)} /></label>
           <button disabled={busy === "assign"}>Assign policy</button>
         </form>
