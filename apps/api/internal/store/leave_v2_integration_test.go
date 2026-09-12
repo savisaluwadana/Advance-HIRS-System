@@ -42,6 +42,36 @@ func TestLeaveManagementV2Integration(t *testing.T) {
 		t.Fatalf("expected initial annual balance 20, got %.2f", annual.Available)
 	}
 
+	specialPolicy, err := dataStore.CreateOrUpdateLeavePolicy(ctx, orgID, model.CreateLeavePolicy{
+		Code: "annual-executive", Name: "Executive annual leave", LeaveType: "annual",
+		AnnualEntitlement: 30, CarryOverLimit: 10, TrackBalance: true,
+		AllowNegative: false, RequiresApproval: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if specialPolicy.IsDefault {
+		t.Fatal("custom policy must not replace the organization default")
+	}
+	if err := dataStore.AssignLeavePolicy(ctx, orgID, specialPolicy.ID, model.AssignLeavePolicy{
+		EmployeeID: "emp_002", EffectiveFrom: "2026-01-01",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	emp2Balances, err := dataStore.ListLeaveBalances(ctx, orgID, "emp_002", 2026)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executive := findBalanceCode(t, emp2Balances, "annual-executive")
+	if executive.Available != 30 {
+		t.Fatalf("expected assigned annual policy balance 30, got %.2f", executive.Available)
+	}
+	for _, balance := range emp2Balances {
+		if balance.LeaveType == "annual" && balance.PolicyCode == "annual" {
+			t.Fatal("default annual policy should not be provisioned when a custom annual policy is assigned")
+		}
+	}
+
 	holiday, err := dataStore.CreateHoliday(ctx, orgID, model.CreateHoliday{
 		Date: "2026-10-06", Name: "Company reset day", Location: "Colombo",
 	})
@@ -107,7 +137,15 @@ func TestLeaveManagementV2Integration(t *testing.T) {
 		t.Fatalf("expected half-day request to equal 0.5, got %.2f", half.Days)
 	}
 
-	large, err := dataStore.CreateLeaveRequestV2(ctx, orgID, "emp_002", "annual", mustDate(t, "2026-11-02"), mustDate(t, "2026-12-04"), "full", "too much leave")
+	assignedRequest, err := dataStore.CreateLeaveRequestV2(ctx, orgID, "emp_002", "annual", mustDate(t, "2026-11-02"), mustDate(t, "2026-12-04"), "full", "assigned policy test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dataStore.DecideLeaveRequestV2(ctx, orgID, assignedRequest.ID, "", "approved", "assigned policy should cover request", ""); err != nil {
+		t.Fatalf("expected assigned 30-day policy to approve request, got %v", err)
+	}
+
+	large, err := dataStore.CreateLeaveRequestV2(ctx, orgID, "emp_004", "annual", mustDate(t, "2026-11-02"), mustDate(t, "2026-12-04"), "full", "too much leave")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,6 +163,17 @@ func findBalance(t *testing.T, balances []model.LeaveBalance, leaveType string) 
 		}
 	}
 	t.Fatalf("missing %s balance", leaveType)
+	return model.LeaveBalance{}
+}
+
+func findBalanceCode(t *testing.T, balances []model.LeaveBalance, code string) model.LeaveBalance {
+	t.Helper()
+	for _, balance := range balances {
+		if balance.PolicyCode == code {
+			return balance
+		}
+	}
+	t.Fatalf("missing policy balance %s", code)
 	return model.LeaveBalance{}
 }
 
