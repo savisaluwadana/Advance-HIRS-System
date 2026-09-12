@@ -36,6 +36,13 @@ PostgreSQL is the authoritative cloud system of record. Employee/manager self-se
 - Employee create, update, archive and directory workflows
 - Employee/manager leave self-service
 - Direct-report manager approvals
+- Policy-backed annual/sick leave balances
+- Immutable leave balance ledger with entitlement, carry-over, adjustments, approved-leave debits and cancellation reversals
+- Company and location-specific holiday calendars
+- Working-day calculation that excludes weekends and applicable holidays
+- Half-day leave requests
+- Database-enforced overlapping-leave protection
+- HR/admin leave policy, assignment, holiday and balance administration at `/leave/admin`
 - Attendance check-in/check-out and HR override controls
 - Organization audit history
 - Secure one-time organization invitations
@@ -44,7 +51,7 @@ PostgreSQL is the authoritative cloud system of record. Employee/manager self-se
 - AES-256-GCM encrypted desktop employee payloads
 - OS-keychain-protected desktop session token
 - Durable offline desktop sync queue with conflict detection
-- CI integration tests against PostgreSQL for RBAC, invitations, leave, attendance, audit and tenant isolation
+- CI integration tests against PostgreSQL for RBAC, invitations, leave accounting, attendance, audit and tenant isolation
 
 ## Run locally with Docker
 
@@ -67,9 +74,32 @@ These accounts are local/demo-only. Never enable demo seeding or reuse these cre
 
 Web: `http://localhost:3000`
 
+Leave workspace: `http://localhost:3000/leave`
+
+Leave administration: `http://localhost:3000/leave/admin`
+
 Access administration: `http://localhost:3000/access`
 
 API: `http://localhost:8080`
+
+## Leave Management v2
+
+Leave requests are policy-backed rather than being treated as standalone rows.
+
+Tracked policies use an append-only balance ledger. Yearly entitlement and capped carry-over entries are provisioned idempotently. Approving a tracked leave request validates the employee's available balance and posts a debit inside the same PostgreSQL transaction as the approval. Cancelling approved leave posts a reversing credit and marks the request cancelled in the same transaction.
+
+Default policies are provisioned per organization when first needed:
+
+- Annual leave — 20 days, up to 5 days carry-over
+- Sick leave — 10 days, no carry-over
+- Parental leave — untracked by default
+- Unpaid leave — untracked
+- Remote work — untracked
+- Other leave — untracked
+
+HR/admins can customize entitlement, carry-over and negative-balance behavior from `/leave/admin`, assign policies to employees, post auditable manual adjustments, and manage company/location holidays.
+
+The request engine excludes weekends and matching holidays from day calculations. Half-day requests count as `0.5` and must be a single calendar date. PostgreSQL prevents overlapping pending/approved leave for the same employee, including concurrent submissions.
 
 ## Secure invitation flow
 
@@ -130,6 +160,15 @@ Core protected endpoints include:
 - `PATCH|DELETE /api/v1/employees/{id}`
 - `GET|POST /api/v1/leave/requests`
 - `POST /api/v1/leave/requests/{id}/decision`
+- `POST /api/v1/leave/requests/{id}/cancel`
+- `GET /api/v1/leave/policies`
+- `PUT /api/v1/leave/policies`
+- `POST /api/v1/leave/policies/{id}/assignments`
+- `GET /api/v1/leave/balances`
+- `GET /api/v1/leave/balances/ledger`
+- `POST /api/v1/leave/balances/adjustments`
+- `GET|POST /api/v1/leave/holidays`
+- `DELETE /api/v1/leave/holidays/{id}`
 - `GET /api/v1/attendance`
 - `POST /api/v1/attendance/check-in`
 - `POST /api/v1/attendance/check-out`
@@ -148,15 +187,20 @@ Public token-bound onboarding endpoints:
 
 Fresh environments should initialize `db/schema.sql`.
 
-Existing environments created before tenant-scoped employee IDs should apply:
+Existing environments should apply migrations in order:
 
 ```bash
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/002_tenant_scoped_employee_ids.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/003_leave_management_v2.sql
 ```
 
-The migration removes the legacy global uniqueness constraint from `employees.id`. Employee identity is scoped by the composite `(organization_id, id)` primary key, allowing separate organizations to safely use the same internal employee ID.
+Migration 002 removes the legacy global uniqueness constraint from `employees.id`. Employee identity is scoped by `(organization_id, id)`.
+
+Migration 003 introduces leave policies, policy assignments, holidays, the balance ledger, half-day/cancellation fields and the database overlap constraint.
 
 ## Production configuration
+
+The API uses Go 1.26. The Docker build and a dedicated CI workflow verify the same toolchain used by container deployment.
 
 Required API configuration:
 
@@ -182,14 +226,13 @@ Optional bootstrap/demo configuration:
 
 1. Automated/versioned production migration runner
 2. Refresh-token/session revocation + SSO/OIDC
-3. Leave balances, leave policies and company holidays
-4. Work schedules, timesheets and attendance corrections
-5. Payroll and compensation
-6. Performance goals/reviews
-7. Recruiting pipeline
-8. Documents and notifications
-9. Desktop conflict-resolution UI + delta sync
-10. Permission-aware AI HR copilot
+3. Work schedules, timesheets and attendance corrections
+4. Payroll and compensation
+5. Performance goals/reviews
+6. Recruiting pipeline
+7. Documents and notifications
+8. Desktop conflict-resolution UI + delta sync
+9. Permission-aware AI HR copilot
 
 ## OpenChoreo
 
