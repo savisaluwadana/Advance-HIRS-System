@@ -1,0 +1,34 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: hris
+      POSTGRES_USER: hris
+      POSTGRES_PASSWORD: hris
+    ports:
+      - "5432:5432"
+    volumes:
+      - hris-data:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+
+  api:
+    build: ./apps/api
+    environment:
+      API_PORT: "8080"
+      DATABASE_URL: postgres://hris:hris@postgres:5432/hris?sslmode=disable
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+
+  web:
+    build: ./apps/web
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8080
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  hris-data:
