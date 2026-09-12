@@ -33,14 +33,25 @@ type LeaveDecision struct {
 }
 
 type AttendanceEntry struct {
-	ID         string     `json:"id"`
-	EmployeeID string     `json:"employee_id"`
-	Employee   string     `json:"employee"`
-	WorkDate   string     `json:"work_date"`
-	CheckIn    *time.Time `json:"check_in,omitempty"`
-	CheckOut   *time.Time `json:"check_out,omitempty"`
-	WorkMode   string     `json:"work_mode"`
-	Status     string     `json:"status"`
+	ID                       string     `json:"id"`
+	EmployeeID               string     `json:"employee_id"`
+	Employee                 string     `json:"employee"`
+	WorkDate                 string     `json:"work_date"`
+	CheckIn                  *time.Time `json:"check_in,omitempty"`
+	CheckOut                 *time.Time `json:"check_out,omitempty"`
+	WorkMode                 string     `json:"work_mode"`
+	Status                   string     `json:"status"`
+	ScheduleID               string     `json:"schedule_id,omitempty"`
+	ScheduleName             string     `json:"schedule_name,omitempty"`
+	ScheduledStartAt         *time.Time `json:"scheduled_start_at,omitempty"`
+	ScheduledEndAt           *time.Time `json:"scheduled_end_at,omitempty"`
+	BreakMinutes             int        `json:"break_minutes"`
+	LateMinutes              int        `json:"late_minutes"`
+	EarlyLeaveMinutes        int        `json:"early_leave_minutes"`
+	WorkedMinutes            int        `json:"worked_minutes"`
+	OvertimeMinutes          int        `json:"overtime_minutes"`
+	OvertimeThresholdMinutes int        `json:"overtime_threshold_minutes"`
+	Source                   string     `json:"source"`
 }
 
 type AttendanceAction struct {
