@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import OperationsPanel from "./OperationsPanel";
 
 type Employee = {
   id: string;
@@ -185,7 +186,7 @@ export default function App() {
           <div className="login-copy">
             <p className="eyebrow">HYBRID LOCAL-FIRST HRIS</p>
             <h1>Your HR workspace, secured on this device.</h1>
-            <p>Sign in to unlock encrypted local workforce data and synchronize approved changes with Advance HRIS Cloud.</p>
+            <p>Sign in with an HR or administrator account to unlock encrypted local workforce data and synchronize approved changes with Advance HRIS Cloud.</p>
           </div>
           <div className="login-security">
             <span>Encrypted SQLite</span>
@@ -198,7 +199,7 @@ export default function App() {
             <div>
               <p className="eyebrow">HR ADMIN CONSOLE</p>
               <h2>Sign in</h2>
-              <p className="subtle">Use your organization account to unlock this desktop workspace.</p>
+              <p className="subtle">The native console is restricted to HR and administrator accounts. Managers and employees use the web portal.</p>
             </div>
             {error && <div className="notice">{error}</div>}
             <label>Email<input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>
@@ -314,6 +315,8 @@ export default function App() {
             </div>
           </div>
         </section>
+
+        {state?.authenticated && <OperationsPanel employees={state.employees} role={state.user.role} onError={setError} />}
       </main>
 
       {editing && (
