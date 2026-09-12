@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE TABLE IF NOT EXISTS employees (
-  id TEXT NOT NULL UNIQUE,
+  id TEXT NOT NULL,
   organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   employee_number TEXT NOT NULL,
   first_name TEXT NOT NULL,
