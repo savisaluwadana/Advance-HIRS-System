@@ -1,0 +1,33 @@
+name: API Container
+
+on:
+  pull_request:
+    paths:
+      - 'apps/api/**'
+      - '.github/workflows/api-container.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/api/**'
+      - '.github/workflows/api-container.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  api-container:
+    name: Go 1.26 + Docker build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          cache-dependency-path: apps/api/go.mod
+      - run: go mod tidy
+      - run: go test ./...
+      - run: go build ./cmd/server
+      - run: docker build -t advance-hris-api-ci .
