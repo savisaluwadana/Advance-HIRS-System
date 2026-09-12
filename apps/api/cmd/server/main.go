@@ -27,17 +27,23 @@ func main() {
 	}
 
 	if strings.TrimSpace(os.Getenv("BOOTSTRAP_ORG_SLUG")) != "" {
-		_, err := dataStore.Bootstrap(
+		seedDemo := strings.EqualFold(os.Getenv("SEED_DEMO_DATA"), "true")
+		orgID, err := dataStore.Bootstrap(
 			ctx,
 			envOr("BOOTSTRAP_ORG_NAME", "Northstar Labs"),
 			os.Getenv("BOOTSTRAP_ORG_SLUG"),
 			envOr("BOOTSTRAP_ADMIN_NAME", "HRIS Administrator"),
 			os.Getenv("BOOTSTRAP_ADMIN_EMAIL"),
 			os.Getenv("BOOTSTRAP_ADMIN_PASSWORD"),
-			strings.EqualFold(os.Getenv("SEED_DEMO_DATA"), "true"),
+			seedDemo,
 		)
 		if err != nil {
 			log.Fatalf("bootstrap failed: %v", err)
+		}
+		if seedDemo && strings.TrimSpace(os.Getenv("SEED_DEMO_PASSWORD")) != "" {
+			if err := dataStore.SeedDemoAccess(ctx, orgID, os.Getenv("SEED_DEMO_PASSWORD")); err != nil {
+				log.Fatalf("demo access bootstrap failed: %v", err)
+			}
 		}
 	}
 
