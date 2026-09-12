@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -42,10 +43,26 @@ func TestAttendanceV2Integration(t *testing.T) {
 	if schedule.Timezone != "Asia/Colombo" || schedule.StartTime != "09:00" {
 		t.Fatalf("unexpected schedule: %#v", schedule)
 	}
-	if err := dataStore.AssignWorkSchedule(ctx, orgID, schedule.ID, model.WorkScheduleAssignment{
+	if err := dataStore.AssignWorkScheduleSafe(ctx, orgID, schedule.ID, model.WorkScheduleAssignment{
 		EmployeeID: "emp_001", ScheduleID: schedule.ID, EffectiveFrom: "2026-09-01",
 	}); err != nil {
 		t.Fatal(err)
+	}
+
+	alternate, err := dataStore.UpsertWorkSchedule(ctx, orgID, model.UpsertWorkSchedule{
+		Code: "late-shift", Name: "Late shift", Timezone: "Asia/Colombo",
+		StartTime: "11:00", EndTime: "19:00", BreakMinutes: 60,
+		GraceMinutes: 5, OvertimeThresholdMinutes: 15,
+		WorkDays: []int{1, 2, 3, 4, 5}, IsDefault: false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = dataStore.AssignWorkScheduleSafe(ctx, orgID, alternate.ID, model.WorkScheduleAssignment{
+		EmployeeID: "emp_001", ScheduleID: alternate.ID, EffectiveFrom: "2026-09-15",
+	})
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected overlapping schedule conflict, got %v", err)
 	}
 
 	checkIn := mustRFC3339Attendance(t, "2026-09-14T03:50:00Z") // 09:20 Asia/Colombo
@@ -104,6 +121,20 @@ func TestAttendanceV2Integration(t *testing.T) {
 	}
 	if summary.WorkedHours != 8.17 || summary.OvertimeHours != 0.92 {
 		t.Fatalf("unexpected rounded hours: worked %.2f overtime %.2f", summary.WorkedHours, summary.OvertimeHours)
+	}
+
+	// A stale open record from yesterday must never be treated as today's clock session.
+	if _, err := dataStore.pool.Exec(ctx, `
+		INSERT INTO attendance_entries (
+			organization_id, employee_id, work_date, check_in, work_mode, status, source
+		) VALUES ($1::uuid, 'emp_002', current_date - 1, now() - interval '1 day 8 hours', 'office', 'present', 'self_service')
+		ON CONFLICT (organization_id, employee_id, work_date) DO UPDATE
+		SET check_in=EXCLUDED.check_in, check_out=NULL, source='self_service'`, orgID); err != nil {
+		t.Fatal(err)
+	}
+	_, err = dataStore.CheckOutTodayV2(ctx, orgID, "emp_002")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected stale checkout guard to return not found, got %v", err)
 	}
 }
 
