@@ -26,8 +26,33 @@ jobs:
       - run: npm run build
 
   api:
-    name: API build
+    name: API + PostgreSQL integration
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: hris
+          POSTGRES_USER: hris
+          POSTGRES_PASSWORD: hris
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hris -d hris"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      API_PORT: "8080"
+      DATABASE_URL: postgres://hris:hris@localhost:5432/hris?sslmode=disable
+      WEB_ORIGIN: http://localhost:3000
+      JWT_SECRET: ci-test-secret-0123456789abcdef0123456789abcdef
+      BOOTSTRAP_ORG_NAME: Northstar Labs
+      BOOTSTRAP_ORG_SLUG: northstar
+      BOOTSTRAP_ADMIN_NAME: CI Administrator
+      BOOTSTRAP_ADMIN_EMAIL: admin@advancehris.local
+      BOOTSTRAP_ADMIN_PASSWORD: ci-admin-password-2026
+      SEED_DEMO_DATA: "true"
     defaults:
       run:
         working-directory: apps/api
@@ -37,23 +62,34 @@ jobs:
         with:
           go-version: '1.25.x'
           cache-dependency-path: apps/api/go.mod
+      - run: go mod tidy
+      - name: Initialize PostgreSQL schema
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f ../../db/schema.sql
       - run: go test ./...
       - run: go build ./cmd/server
+      - name: API auth and tenant smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          go run ./cmd/server >/tmp/advance-hris-api.log 2>&1 &
+          API_PID=$!
+          trap 'kill "$API_PID" 2>/dev/null || true' EXIT
 
-  desktop-core:
-    name: Desktop Go core
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/desktop
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.25.x'
-          cache-dependency-path: apps/desktop/go.mod
-      - run: go mod tidy
-      - run: go test ./internal/...
+          for i in {1..30}; do
+            if curl -sf http://localhost:8080/health >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+
+          TOKEN=$(curl -sf -X POST http://localhost:8080/api/v1/auth/login \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"admin@advancehris.local","password":"ci-admin-password-2026","organization_slug":"northstar"}' \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
+          test -n "$TOKEN"
+          curl -sf http://localhost:8080/api/v1/auth/me -H "Authorization: Bearer $TOKEN" >/dev/null
+          curl -sf http://localhost:8080/api/v1/employees -H "Authorization: Bearer $TOKEN" \
+            | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data["total"] >= 4'
 
   desktop-ui:
     name: Desktop UI build
@@ -70,3 +106,18 @@ jobs:
           cache-dependency-path: apps/desktop/frontend/package.json
       - run: npm install
       - run: npm run build
+
+  desktop-core:
+    name: Desktop Go core
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache-dependency-path: apps/desktop/go.mod
+      - run: go mod tidy
+      - run: go test ./internal/...

@@ -10,16 +10,30 @@ services:
     volumes:
       - hris-data:/var/lib/postgresql/data
       - ./db/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hris -d hris"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
 
   api:
     build: ./apps/api
     environment:
       API_PORT: "8080"
       DATABASE_URL: postgres://hris:hris@postgres:5432/hris?sslmode=disable
+      WEB_ORIGIN: http://localhost:3000
+      JWT_SECRET: local-development-secret-change-before-production-2026
+      BOOTSTRAP_ORG_NAME: Northstar Labs
+      BOOTSTRAP_ORG_SLUG: northstar
+      BOOTSTRAP_ADMIN_NAME: HRIS Administrator
+      BOOTSTRAP_ADMIN_EMAIL: admin@advancehris.local
+      BOOTSTRAP_ADMIN_PASSWORD: local-admin-change-me
+      SEED_DEMO_DATA: "true"
     ports:
       - "8080:8080"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
 
   web:
     build: ./apps/web
