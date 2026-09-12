@@ -28,7 +28,7 @@ func main() {
 
 	if strings.TrimSpace(os.Getenv("BOOTSTRAP_ORG_SLUG")) != "" {
 		seedDemo := strings.EqualFold(os.Getenv("SEED_DEMO_DATA"), "true")
-		orgID, err := dataStore.Bootstrap(
+		orgID, err := dataStore.BootstrapV2(
 			ctx,
 			envOr("BOOTSTRAP_ORG_NAME", "Northstar Labs"),
 			os.Getenv("BOOTSTRAP_ORG_SLUG"),
@@ -50,7 +50,7 @@ func main() {
 	port := envOr("API_PORT", "8080")
 	server := &http.Server{
 		Addr:              ":" + port,
-		Handler:           httpapi.NewHandlerV2(dataStore, authManager, envOr("WEB_ORIGIN", "http://localhost:3000")),
+		Handler:           httpapi.NewHandlerV3(dataStore, authManager, envOr("WEB_ORIGIN", "http://localhost:3000")),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
