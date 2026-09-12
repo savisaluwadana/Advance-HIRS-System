@@ -58,9 +58,10 @@ CREATE TABLE IF NOT EXISTS organization_memberships (
 
 CREATE TABLE IF NOT EXISTS leave_requests (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  organization_id UUID NOT NULL REFERENCES organizations(id) ON DELEE CASCADE,
+  organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   employee_id TEXT NOT NULL,
-  leave_type TEXT NOT NULL,
+  leave_type TEXT NOT NULL
+    CHECK (leave_type IN ('annual', 'sick', 'unpaid', 'remote', 'parental', 'other')),
   start_date DATE NOT NULL,
   end_date DATE NOT NULL,
   days NUMERIC(6,2) NOT NULL CHECK (days > 0),
@@ -68,6 +69,7 @@ CREATE TABLE IF NOT EXISTS leave_requests (
   status TEXT NOT NULL DEFAULT 'pending'
     CHECK (status IN ('pending', 'approved', 'rejected', 'cancelled')),
   approver_id TEXT,
+  decision_note TEXT,
   decided_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -90,6 +92,7 @@ CREATE TABLE IF NOT EXISTS attendance_entries (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (organization_id, employee_id, work_date),
+  CHECK (check_out IS NULL OR check_in IS NULL OR check_out >= check_in),
   FOREIGN KEY (organization_id, employee_id) REFERENCES employees(organization_id, id) ON DELETE CASCADE
 );
 
@@ -120,7 +123,10 @@ CREATE TABLE IF NOT EXISTS audit_events (
 CREATE INDEX IF NOT EXISTS idx_memberships_user ON organization_memberships(user_id, status);
 CREATE INDEX IF NOT EXISTS idx_employees_org_status ON employees(organization_id, status);
 CREATE INDEX IF NOT EXISTS idx_employees_org_department ON employees(organization_id, department);
+CREATE INDEX IF NOT EXISTS idx_employees_org_manager ON employees(organization_id, manager_id);
 CREATE INDEX IF NOT EXISTS idx_leave_org_status ON leave_requests(organization_id, status);
+CREATE INDEX IF NOT EXISTS idx_leave_employee_created ON leave_requests(organization_id, employee_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_attendance_org_date ON attendance_entries(organization_id, work_date);
+CREATE INDEX IF NOT EXISTS idx_attendance_employee_date ON attendance_entries(organization_id, employee_id, work_date DESC);
 CREATE INDEX IF NOT EXISTS idx_jobs_org_status ON jobs(organization_id, status);
 CREATE INDEX IF NOT EXISTS idx_audit_org_created ON audit_events(organization_id, created_at DESC);
