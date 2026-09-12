@@ -12,6 +12,7 @@ type LeavePolicy struct {
 	TrackBalance      bool      `json:"track_balance"`
 	AllowNegative     bool      `json:"allow_negative"`
 	RequiresApproval  bool      `json:"requires_approval"`
+	IsDefault         bool      `json:"is_default"`
 	Active            bool      `json:"active"`
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
@@ -46,10 +47,10 @@ type LeaveBalanceEvent struct {
 }
 
 type CompanyHoliday struct {
-	ID       string    `json:"id"`
-	Date     string    `json:"date"`
-	Name     string    `json:"name"`
-	Location string    `json:"location,omitempty"`
+	ID        string    `json:"id"`
+	Date      string    `json:"date"`
+	Name      string    `json:"name"`
+	Location  string    `json:"location,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
