@@ -155,6 +155,16 @@ ON CONFLICT(id) DO UPDATE SET
 		return err
 	}
 
+	// Coalesce repeated offline edits for the same employee. The newest payload
+	// replaces older unsynced upserts while preserving the same cloud base
+	// version, preventing a device from conflicting with its own edit history.
+	if _, err := tx.ExecContext(ctx, `
+DELETE FROM sync_queue
+WHERE entity_type = 'employee' AND entity_id = ? AND action = 'upsert'
+`, employee.ID); err != nil {
+		return err
+	}
+
 	if _, err := tx.ExecContext(ctx, `
 INSERT INTO sync_queue (id, entity_type, entity_id, action, encrypted_payload, base_version, changed_at)
 VALUES (?, 'employee', ?, 'upsert', ?, ?, ?)

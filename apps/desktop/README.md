@@ -22,6 +22,7 @@ Then:
 
 ```bash
 cd apps/desktop
+go mod tidy
 wails doctor
 wails dev
 ```
