@@ -6,22 +6,34 @@ services:
       POSTGRES_USER: hris
       POSTGRES_PASSWORD: hris
     ports:
-      - "5432:5432"
+      - "${HRIS_POSTGRES_PORT:-5432}:5432"
     volumes:
       - hris-data:/var/lib/postgresql/data
-      - ./db/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U hris -d hris"]
       interval: 3s
       timeout: 3s
-      retries: 10
+      retries: 20
+    restart: unless-stopped
+
+  migrate:
+    image: postgres:17-alpine
+    environment:
+      DATABASE_URL: postgres://hris:hris@postgres:5432/hris?sslmode=disable
+    volumes:
+      - ./db:/workspace/db:ro
+    command: ["sh", "/workspace/db/migrate.sh"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
 
   api:
     build: ./apps/api
     environment:
       API_PORT: "8080"
       DATABASE_URL: postgres://hris:hris@postgres:5432/hris?sslmode=disable
-      WEB_ORIGIN: http://localhost:3000
+      WEB_ORIGIN: http://localhost:${HRIS_WEB_PORT:-3000}
       JWT_SECRET: local-development-secret-change-before-production-2026
       BOOTSTRAP_ORG_NAME: Northstar Labs
       BOOTSTRAP_ORG_SLUG: northstar
@@ -31,20 +43,36 @@ services:
       SEED_DEMO_DATA: "true"
       SEED_DEMO_PASSWORD: local-demo-password-2026
     ports:
-      - "8080:8080"
+      - "${HRIS_API_PORT:-8080}:8080"
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
 
   web:
     build: ./apps/web
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8080
       API_INTERNAL_URL: http://api:8080
+      NEXT_PUBLIC_API_URL: http://localhost:${HRIS_API_PORT:-8080}
+      WEB_COOKIE_SECURE: "false"
     ports:
-      - "3000:3000"
+      - "${HRIS_WEB_PORT:-3000}:3000"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/docs >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
 
 volumes:
   hris-data:
