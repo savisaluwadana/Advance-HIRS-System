@@ -91,7 +91,8 @@ export default function App() {
   const [email, setEmail] = useState("admin@advancehris.local");
   const [password, setPassword] = useState("");
   const [organizationSlug, setOrganizationSlug] = useState("northstar");
-  const [signingIn, setSigningIn] = useState(false);\n  const [activeSection, setActiveSection] = useState("overview");
+  const [signingIn, setSigningIn] = useState(false);
+  const [activeSection, setActiveSection] = useState("overview");
 
   const api = window.go?.main?.App;
 
