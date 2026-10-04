@@ -112,7 +112,7 @@ Roles:
 | --- | --- |
 | admin | organization-wide HR actions, access administration, employee management, audit, leave/attendance admin |
 | hr | employee management, employee/manager invitations, leave/attendance admin, audit |
-| manager | self service plus direct-report leave/attendance review |
+| manager | self service, own/direct-report directory visibility, direct-report leave/attendance review |
 | employee | self-service leave and attendance |
 
 Organization ID is always derived from the authenticated principal. Request payloads are not allowed to choose a tenant.
