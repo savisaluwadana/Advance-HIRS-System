@@ -97,6 +97,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", "email or password is incorrect")
 		return
 	}
+	w.Header().Set("Cache-Control", "no-store")
 	token, expiresAt, err := s.auth.Issue(identity.UserID, identity.Email, identity.DisplayName, identity.OrganizationID, identity.Organization, identity.Role)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "token_error", "could not create access token")
@@ -127,7 +128,21 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listEmployees(w http.ResponseWriter, r *http.Request) {
 	principal := principalFromContext(r.Context())
-	employees, err := s.store.ListEmployees(r.Context(), principal.OrganizationID)
+
+	var (
+		employees []model.Employee
+		err       error
+	)
+	if principal.Role == "manager" {
+		managerEmployeeID, lookupErr := s.store.EmployeeIDForUser(r.Context(), principal.OrganizationID, principal.UserID)
+		if lookupErr != nil || managerEmployeeID == "" {
+			writeError(w, http.StatusForbidden, "employee_link_required", "manager account is not linked to an employee profile")
+			return
+		}
+		employees, err = s.store.ListEmployeesForManager(r.Context(), principal.OrganizationID, managerEmployeeID)
+	} else {
+		employees, err = s.store.ListEmployees(r.Context(), principal.OrganizationID)
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "employee_list_error", "could not load employees")
 		return
