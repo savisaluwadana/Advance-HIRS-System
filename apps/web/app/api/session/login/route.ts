@@ -36,5 +36,5 @@ export async function POST(request: Request) {
     expires,
   });
 
-  return NextResponse.json({authenticated: true, expires_at: body.expires_at, user: body.user});
+  return NextResponse.json({authenticated: true, expires_at: body.expires_at, user: body.user}, {headers: {"Cache-Control": "no-store"}});
 }
