@@ -107,7 +107,7 @@ export default function OperationsPanel({employees, role, onError}: {employees: 
       </div>
 
       <div className="operations-grid">
-        <article className="panel workflow-panel">
+        <article id="desktop-leave" className="panel workflow-panel">
           <div className="panel-heading"><div><p className="eyebrow">LEAVE</p><h2>Pending approvals</h2></div><span>{pending.length} pending</span></div>
           <div className="workflow-list">
             {pending.length === 0 && <div className="empty-state">No leave requests need attention.</div>}
@@ -120,7 +120,7 @@ export default function OperationsPanel({employees, role, onError}: {employees: 
           </div>
         </article>
 
-        <article className="panel workflow-panel">
+        <article id="desktop-attendance" className="panel workflow-panel">
           <div className="panel-heading"><div><p className="eyebrow">ATTENDANCE</p><h2>Today</h2></div><span>{state.attendance.length} recorded</span></div>
           {canOverrideAttendance && <div className="attendance-control">
             <select value={employeeID} onChange={(event) => setEmployeeID(event.target.value)}>{employees.map((employee) => <option value={employee.id} key={employee.id}>{employee.name}</option>)}</select>

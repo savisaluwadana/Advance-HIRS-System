@@ -92,8 +92,14 @@ export default function App() {
   const [password, setPassword] = useState("");
   const [organizationSlug, setOrganizationSlug] = useState("northstar");
   const [signingIn, setSigningIn] = useState(false);
+  const [activeSection, setActiveSection] = useState("overview");
 
   const api = window.go?.main?.App;
+
+  function navigateSection(section: string, elementID: string) {
+    setActiveSection(section);
+    document.getElementById(elementID)?.scrollIntoView({behavior: "smooth", block: "start"});
+  }
 
   async function refresh() {
     if (!api) {
@@ -225,13 +231,13 @@ export default function App() {
         </div>
 
         <nav>
-          <button className="nav-item active">Overview</button>
-          <button className="nav-item">People</button>
-          <button className="nav-item">Attendance</button>
-          <button className="nav-item">Leave</button>
-          <button className="nav-item">Payroll</button>
-          <button className="nav-item">Performance</button>
-          <button className="nav-item">Recruitment</button>
+          <button className={`nav-item ${activeSection === "overview" ? "active" : ""}`} onClick={() => navigateSection("overview", "desktop-overview")}>Overview</button>
+          <button className={`nav-item ${activeSection === "people" ? "active" : ""}`} onClick={() => navigateSection("people", "desktop-people")}>People</button>
+          <button className={`nav-item ${activeSection === "attendance" ? "active" : ""}`} onClick={() => navigateSection("attendance", "desktop-attendance")}>Attendance</button>
+          <button className={`nav-item ${activeSection === "leave" ? "active" : ""}`} onClick={() => navigateSection("leave", "desktop-leave")}>Leave</button>
+          <button className="nav-item planned" disabled title="Planned module">Payroll <small>planned</small></button>
+          <button className="nav-item planned" disabled title="Planned module">Performance <small>planned</small></button>
+          <button className="nav-item planned" disabled title="Planned module">Recruitment <small>planned</small></button>
         </nav>
 
         <div className="sync-card">
@@ -249,7 +255,7 @@ export default function App() {
         </div>
       </aside>
 
-      <main>
+      <main id="desktop-overview">
         <header className="topbar">
           <div>
             <p className="eyebrow">HR ADMIN CONSOLE</p>
@@ -272,7 +278,7 @@ export default function App() {
         </section>
 
         <section className="content-grid">
-          <div className="panel people-panel">
+          <div id="desktop-people" className="panel people-panel">
             <div className="panel-heading">
               <div><p className="eyebrow">WORKFORCE</p><h2>People directory</h2></div>
               <span>{employees.length} shown</span>

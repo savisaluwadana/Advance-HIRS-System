@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { apiBaseURL, SESSION_COOKIE } from "../../../../lib/api";
+import { apiBaseURL, SESSION_COOKIE, sessionCookieSecure } from "../../../../lib/api";
 
 export async function POST(request: Request) {
   let payload: unknown;
@@ -30,11 +30,11 @@ export async function POST(request: Request) {
   const expires = body.expires_at ? new Date(body.expires_at) : new Date(Date.now() + 8 * 60 * 60 * 1000);
   cookieStore.set(SESSION_COOKIE, token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: sessionCookieSecure(),
     sameSite: "lax",
     path: "/",
     expires,
   });
 
-  return NextResponse.json({authenticated: true, expires_at: body.expires_at, user: body.user});
+  return NextResponse.json({authenticated: true, expires_at: body.expires_at, user: body.user}, {headers: {"Cache-Control": "no-store"}});
 }

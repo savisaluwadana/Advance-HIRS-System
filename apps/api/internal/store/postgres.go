@@ -158,6 +158,26 @@ func (s *Store) ListEmployees(ctx context.Context, orgID string) ([]model.Employ
 	return employees, rows.Err()
 }
 
+func (s *Store) ListEmployeesForManager(ctx context.Context, orgID, managerEmployeeID string) ([]model.Employee, error) {
+	rows, err := s.pool.Query(ctx, employeeSelect+`
+		WHERE organization_id = $1::uuid
+		  AND (id = $2 OR manager_id = $2)
+		ORDER BY first_name, last_name`, orgID, managerEmployeeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var employees []model.Employee
+	for rows.Next() {
+		employee, err := scanEmployee(rows)
+		if err != nil {
+			return nil, err
+		}
+		employees = append(employees, employee)
+	}
+	return employees, rows.Err()
+}
+
 func (s *Store) GetEmployee(ctx context.Context, orgID, id string) (model.Employee, error) {
 	employee, err := scanEmployee(s.pool.QueryRow(ctx, employeeSelect+`
 		WHERE organization_id = $1::uuid AND id = $2`, orgID, id))

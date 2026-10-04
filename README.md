@@ -50,11 +50,26 @@ PostgreSQL is the authoritative cloud system of record. Employee/manager self-se
 - Durable offline desktop sync queue with conflict detection
 - CI integration tests against PostgreSQL for RBAC, invitations, leave accounting, attendance accounting, audit and tenant isolation
 
+## Documentation
+
+The repository documentation is organized as a handbook:
+
+- [Documentation index](docs/README.md)
+- [Architecture](docs/architecture.md)
+- [Development and local operation](docs/development.md)
+- [API reference](docs/api-reference.md)
+- [Production readiness](docs/production-readiness.md)
+- [OpenChoreo deployment](docs/openchoreo.md)
+
+The same operator/developer guide is available in the web application at `/docs`.
+
 ## Run locally with Docker
 
 ```bash
 docker compose up --build
 ```
+
+The one-command stack is health-gated: PostgreSQL becomes ready, `db/migrate.sh` applies the current schema and migrations, the API must pass `/health`, and only then does the web container start.
 
 Local development bootstraps:
 
@@ -70,6 +85,8 @@ Demo password: local-demo-password-2026
 These accounts are local/demo-only. Never enable demo seeding or reuse these credentials in a shared or production environment.
 
 Web: `http://localhost:3000`
+
+Documentation: `http://localhost:3000/docs`
 
 Leave workspace: `http://localhost:3000/leave`
 
@@ -244,6 +261,7 @@ Required API configuration:
 Recommended web configuration:
 
 - `API_INTERNAL_URL` — server-side route-handler URL for the Go API
+- `WEB_COOKIE_SECURE` — use `false` only for local HTTP; HTTPS production defaults to secure cookies
 
 Optional bootstrap/demo configuration:
 
@@ -257,14 +275,17 @@ Optional bootstrap/demo configuration:
 
 ## Next development layers
 
-1. Automated/versioned production migration runner
+The MVP startup path now includes repeatable SQL migrations and health-gated Docker Compose orchestration. The remaining product/production layers are:
+
+1. Production migration orchestration with a schema-version registry
 2. Refresh-token/session revocation + SSO/OIDC
-3. Payroll and compensation
-4. Performance goals/reviews
-5. Recruiting pipeline
-6. Documents and notifications
-7. Desktop conflict-resolution UI + delta sync
-8. Permission-aware AI HR copilot
+3. Rate limiting, structured telemetry and backup/restore automation
+4. Payroll and compensation
+5. Performance goals/reviews
+6. Recruiting pipeline
+7. Employee documents and notifications
+8. Desktop conflict-resolution UI + delta sync
+9. Permission-aware AI HR copilot
 
 ## OpenChoreo
 
