@@ -61,6 +61,11 @@ Roles: admin, hr, manager.
 
 Roles: admin, hr, manager.
 
+Scope:
+
+- admin/hr: organization-wide directory;
+- manager: the manager's linked employee profile plus direct reports.
+
 ### POST /employees
 
 Roles: admin, hr.
