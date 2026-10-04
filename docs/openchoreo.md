@@ -9,7 +9,9 @@ Advance HRIS is structured as a realistic multi-component workload: a public web
 - Source: `apps/web`
 - Runtime: Node.js / Next.js
 - Port: `3000`
-- Environment: `NEXT_PUBLIC_API_URL`
+- Server-side API target: `API_INTERNAL_URL`
+- Public API URL (optional): `NEXT_PUBLIC_API_URL`
+- Cookie security: `WEB_COOKIE_SECURE=true` for HTTPS deployments
 
 ### `hris-api`
 
@@ -33,7 +35,7 @@ Advance HRIS is structured as a realistic multi-component workload: a public web
 
 ### PostgreSQL
 
-Use managed PostgreSQL or an environment-specific data-plane resource. Apply `db/schema.sql` for the current development foundation; production should move to versioned migrations before the first stable release.
+Use managed PostgreSQL or an environment-specific data-plane resource. Run `db/migrate.sh` (or an equivalent controlled migration job) before promoting API traffic. Production should add a schema-version registry and release-level migration orchestration before the first stable release.
 
 ### Desktop
 
@@ -44,9 +46,9 @@ Use managed PostgreSQL or an environment-specific data-plane resource. Apply `db
 - Organization ID is derived from the authenticated token, never trusted from request payloads.
 - Employee reads/writes are scoped by organization in SQL.
 - `admin` and `hr` may mutate employee records and use desktop sync.
-- `manager` currently has directory/dashboard read access only.
-- `employee` is authenticated but has no broad workforce-directory access yet.
-- Audit events capture employee create/update/archive/sync actions.
+- `manager` has self-service plus direct-report leave/attendance review.
+- `employee` has self-service leave/attendance and no broad workforce-directory access.
+- Audit events capture employee, access, leave, attendance and sync workflow mutations.
 
 ## Suggested environments
 
